@@ -1,12 +1,11 @@
-"""
-网格交易大师 (Grid Trading Master) - 主应用
-"""
+"""网格交易大师 (Grid Trading Master) - 主应用"""
 import pandas as pd
 import dash
 from dash import dcc, html, Input, Output, State, callback
 import dash_bootstrap_components as dbc
 from datetime import datetime, timedelta
 import plotly.graph_objects as go
+import os
 
 from data_fetcher import DataFetcher
 from data_processor import DataProcessor
@@ -25,7 +24,7 @@ app = dash.Dash(
     __name__,
     external_stylesheets=[dbc.themes.BOOTSTRAP],
     meta_tags=[{"name": "viewport", "content": "width=device-width, initial-scale=1"}],
-    title="网格交易大师"
+    title="网格交易大师V2"
 )
 
 # 定义布局
@@ -36,7 +35,7 @@ app.layout = html.Div([
             html.A(
                 dbc.Row([
                     dbc.Col(html.Img(src="assets/logo.png", height="28px"), width="auto"),
-                    dbc.Col(dbc.NavbarBrand("网格交易大师", className="ms-2 fw-normal", style={"color": "#4D4B63"})),
+                    dbc.Col(dbc.NavbarBrand("网格交易大师V2", className="ms-2 fw-normal", style={"color": "#4D4B63"})),
                 ], align="center", className="g-0"),
                 href="/",
                 style={"textDecoration": "none"},
@@ -132,13 +131,26 @@ app.layout = html.Div([
                                 ], className="d-inline"),
                                 # 添加交互控制按钮组
                                 html.Div([
-                                    dbc.Button("-", id="zoom-out-btn", color="light", className="mx-1 p-1", 
-                                              size="sm", style={"width": "30px", "height": "30px", "border-radius": "50%"}),
-                                    dbc.Button("+", id="zoom-in-btn", color="light", className="mx-1 p-1", 
-                                              size="sm", style={"width": "30px", "height": "30px", "border-radius": "50%"}),
-                                    dbc.Button("重置", id="reset-zoom-btn", color="light", className="mx-1 p-1", 
-                                              size="sm", style={"height": "30px", "font-size": "12px"}),
-                                ], className="float-end"),
+                                    dbc.ButtonGroup([
+                                        dbc.Button("-", id="zoom-out-btn", color="light", className="mx-1 p-1", 
+                                                  size="sm", style={"width": "30px", "height": "30px", "border-radius": "50%"}),
+                                        dbc.Button("+", id="zoom-in-btn", color="light", className="mx-1 p-1", 
+                                                  size="sm", style={"width": "30px", "height": "30px", "border-radius": "50%"}),
+                                        dbc.Button("重置", id="reset-zoom-btn", color="light", className="mx-1 p-1", 
+                                                  size="sm", style={"height": "30px", "font-size": "12px"}),
+                                    ], className="float-end me-2"),
+                                    # 添加K线图切换开关
+                                    html.Div(
+                                        dbc.Switch(
+                                            id="kline-toggle",
+                                            label="显示K线图",
+                                            value=False,  # 默认关闭
+                                            className="mt-0",
+                                            style={"font-size": "12px"}
+                                        ),
+                                        className="float-end"
+                                    )
+                                ]),
                             ], className="py-2 border-bottom d-flex justify-content-between", style={"border-left": "3px solid #7D5BA6", "background": "#FCFCFE"}),
                             dbc.CardBody([
                                 html.Div(id="stock-chart-container"),
@@ -168,7 +180,7 @@ app.layout = html.Div([
         html.Footer([
             html.Hr(style={"margin": "10px 0", "border-top": "1px solid #f0f0f0"}),
             html.P(
-                "网格交易大师 v1.0 © 2025",
+                "网格交易大师 v2.0 © 2025",
                 className="text-center text-muted small",
                 style={"margin-bottom": "8px"}
             ),
@@ -177,7 +189,6 @@ app.layout = html.Div([
 ], style={"background-color": "#fafafa"})  # 整体背景色
 
 # 创建资产目录
-import os
 if not os.path.exists("assets"):
     os.makedirs("assets")
 
@@ -233,8 +244,6 @@ def select_search_result(n_clicks):
     selected_code = eval(triggered_id)['index']
     
     return selected_code
-
-# 移除了Tushare Token输入框显示/隐藏回调，因为现在只使用东方财富数据源
 
 # 创建摘要卡片函数
 def create_summary_cards(df):
@@ -308,7 +317,8 @@ def create_summary_cards(df):
         Input("query-btn", "n_clicks"),
         Input("zoom-in-btn", "n_clicks"),
         Input("zoom-out-btn", "n_clicks"),
-        Input("reset-zoom-btn", "n_clicks")
+        Input("reset-zoom-btn", "n_clicks"),
+        Input('kline-toggle', 'value'),  # 添加K线图切换输入
     ],
     [
         State("stock-input", "value"),
@@ -318,8 +328,8 @@ def create_summary_cards(df):
     ],
     prevent_initial_call=True
 )
-def combined_callback(query_clicks, zoom_in_clicks, zoom_out_clicks, reset_clicks, 
-                      stock_code, date_range, data_source, stored_data):
+def update_chart(query_clicks, zoom_in_clicks, zoom_out_clicks, reset_clicks, kline_toggle, 
+                 stock_code, date_range, data_source, stored_data):
     """整合的回调函数，处理查询和缩放功能"""
     ctx = dash.callback_context
     if not ctx.triggered:
@@ -329,7 +339,7 @@ def combined_callback(query_clicks, zoom_in_clicks, zoom_out_clicks, reset_click
     triggered_id = ctx.triggered[0]['prop_id'].split('.')[0]
     
     # 缩放功能 - 如果是缩放按钮且有存储数据
-    if triggered_id in ["zoom-in-btn", "zoom-out-btn", "reset-zoom-btn"] and stored_data:
+    if triggered_id in ["zoom-in-btn", "zoom-out-btn", "reset-zoom-btn", "kline-toggle"] and stored_data:
         # 检查数据结构
         if not isinstance(stored_data, dict) or 'data' not in stored_data:
             return dash.no_update, dash.no_update, dash.no_update, dash.no_update, dash.no_update
@@ -371,8 +381,12 @@ def combined_callback(query_clicks, zoom_in_clicks, zoom_out_clicks, reset_click
         # 存储当前缩放状态
         y_scale_factor = 1.0  # 默认比例
         
-        # 创建新的图表
-        chart = visualizer.create_stock_chart(df, f"{stock_name} ({stock_code}) 中间价与振幅分析")
+        # 创建新的图表，传递K线图显示状态
+        chart = visualizer.create_stock_chart(
+            df, 
+            f"{stock_name} ({stock_code}) 中间价与振幅分析",
+            show_kline=kline_toggle  # 根据开关状态决定是否显示K线图
+        )
         fig = chart.figure
         
         # 从存储的状态中获取当前缩放状态，如果有的话
@@ -456,14 +470,95 @@ def combined_callback(query_clicks, zoom_in_clicks, zoom_out_clicks, reset_click
             # 重置缩放因子
             y_scale_factor = 1.0
             
-            # 重置图表到原始状态
-            fig = visualizer.create_stock_chart(df, f"{stock_name} ({stock_code}) 中间价与振幅分析").figure
+            # 重置图表到原始状态，但保持K线图显示状态
+            chart = visualizer.create_stock_chart(
+                df, 
+                f"{stock_name} ({stock_code}) 中间价与振幅分析",
+                show_kline=kline_toggle
+            )
+            fig = chart.figure
             
             debug_msg = f"重置缩放 - 恢复原始状态\n"
-            debug_msg += f"K线图和振幅图已重置为默认范围"
+            if kline_toggle:
+                debug_msg += f"K线图显示已开启"
+            else:
+                debug_msg += f"K线图显示已关闭"
             
             # 更新调试信息
             debug_info.children[0].children = debug_msg
+            
+        # 如果是K线图切换开关
+        elif triggered_id == "kline-toggle":
+            import traceback
+            import io
+            try:
+                # 打印当前数据和状态信息，帮助调试
+                print(f"\n\n[DEBUG] K线图切换: {kline_toggle}")
+                print(f"[DEBUG] 数据列: {df.columns.tolist()}")
+                print(f"[DEBUG] 数据行数: {len(df)}")
+                
+                # 重新创建图表，并传递新的K线图显示状态
+                chart = visualizer.create_stock_chart(
+                    df, 
+                    f"{stock_name} ({stock_code}) 中间价与振幅分析",
+                    show_kline=kline_toggle
+                )
+                fig = chart.figure
+                
+                # 保持当前的缩放状态
+                # 获取K线图和振幅图的当前数据范围
+                price_min = df['low'].min() * 0.98
+                price_max = df['high'].max() * 1.02
+                amp_min = 0  # 振幅最小值通常是0
+                amp_max = df['amplitude'].max() * 1.2
+                
+                # 计算当前缩放的Y轴范围
+                price_range = price_max - price_min
+                price_mid = (price_max + price_min) / 2
+                new_price_range = price_range / y_scale_factor
+                
+                amp_range = amp_max - amp_min
+                amp_mid = (amp_max + amp_min) / 2
+                new_amp_range = amp_range / y_scale_factor
+                
+                # 应用当前的缩放状态
+                fig.update_layout(
+                    yaxis=dict(
+                        range=[price_mid - new_price_range/2, price_mid + new_price_range/2]
+                    ),
+                    yaxis2=dict(
+                        range=[amp_mid - new_amp_range/2, amp_mid + new_amp_range/2]
+                    )
+                )
+                
+                debug_msg = f"K线图显示已{'开启' if kline_toggle else '关闭'}\n"
+                debug_msg += f"当前缩放因子 = {y_scale_factor:.2f}"
+                
+                # 更新调试信息
+                debug_info.children[0].children = debug_msg
+            except Exception as e:
+                # 获取完整的错误信息
+                error_buffer = io.StringIO()
+                traceback.print_exc(file=error_buffer)
+                full_error = error_buffer.getvalue()
+                print(f"\n\n[ERROR] K线图切换时错误:\n{full_error}")
+                
+                # 在UI上显示错误
+                debug_msg = f"\n*** 错误信息 ***\n"
+                debug_msg += f"类型: {type(e).__name__}\n"
+                debug_msg += f"内容: {str(e)}\n"
+                debug_msg += f"请查看控制台以获取完整错误信息"
+                
+                # 更新调试信息
+                debug_info.children[0].children = debug_msg
+                
+                # 创建一个空图表以避免崩溃
+                if 'fig' not in locals():
+                    fig = go.Figure()
+                    fig.add_annotation(text="出错了，请查看上方的调试信息",
+                                    xref="paper", yref="paper",
+                                    x=0.5, y=0.5, showarrow=False,
+                                    font=dict(color="red", size=20))
         
         # 更新存储数据中的缩放因子
         if isinstance(stored_data, dict):
@@ -503,6 +598,13 @@ def combined_callback(query_clicks, zoom_in_clicks, zoom_out_clicks, reset_click
             # 获取股票数据
             df = data_fetcher.get_stock_data(stock_code, start_date, end_date)
             
+            # 打印调试信息，查看数据结构
+            print("\n\n数据列名:", df.columns.tolist())
+            if not df.empty and 'open' in df.columns:
+                print("开盘价样本:", df['open'].head(3).tolist())
+            else:
+                print("数据中没有open列")
+            
             if df.empty:
                 alert = dbc.Alert("未查询到股票数据，请检查股票代码或日期范围", color="warning")
                 return None, None, None, None, alert
@@ -521,8 +623,12 @@ def combined_callback(query_clicks, zoom_in_clicks, zoom_out_clicks, reset_click
             except:
                 stock_name = stock_code
             
-            # 创建可视化对象
-            chart = visualizer.create_stock_chart(df, f"{stock_name} ({stock_code}) 中间价与振幅分析")
+            # 创建可视化对象，K线图初始不显示
+            chart = visualizer.create_stock_chart(
+                df, 
+                f"{stock_name} ({stock_code}) 中间价与振幅分析",
+                show_kline=kline_toggle
+            )
             data_table = visualizer.create_stock_table(df)
             
             # 创建摘要卡片
@@ -558,10 +664,7 @@ def combined_callback(query_clicks, zoom_in_clicks, zoom_out_clicks, reset_click
             return None, None, None, None, alert
     
     return dash.no_update, dash.no_update, dash.no_update, dash.no_update, dash.no_update
-    
-# 移除了与策略回测相关的回调函数
 
 # 运行应用
-
 if __name__ == "__main__":
     app.run(debug=True, port=8050)

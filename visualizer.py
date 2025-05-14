@@ -1,242 +1,381 @@
-"""
-可视化模块 - 负责生成数据表格和图表
-"""
-import pandas as pd
-import numpy as np
 import plotly.graph_objects as go
 from plotly.subplots import make_subplots
-import matplotlib.pyplot as plt
-from dash import html, dcc
+import plotly.express as px
+import pandas as pd
+from datetime import datetime
 import dash_bootstrap_components as dbc
-from datetime import datetime, timedelta
-
+from dash import html, dcc
+import numpy as np
 
 class Visualizer:
     def __init__(self):
         """初始化可视化器"""
         pass
-    
-    def create_stock_table(self, df):
-        """
-        创建股票数据表格
         
-        Parameters:
-        -----------
-        df : pd.DataFrame
-            处理后的股票数据
-            
+    def create_stock_chart(self, df, title=None, show_kline=False):
+        """
+        创建股票图表，包含中间价、振幅和成交量
+        
+        Args:
+            df: 股票数据框架
+            title: 图表标题
+            show_kline: 是否显示K线图（默认为否）
+        
         Returns:
-        --------
-        html.Div : Dash表格组件
+            plotly图表对象
         """
-        if df.empty:
-            return html.Div("无数据")
-        
-        # 选择要显示的列
-        display_cols = [
-            'date', 'high', 'low', 'close', 'mid_price', 
-            'amplitude'
-        ]
-        
-        # 添加资金流向列（如果存在）
-        if 'main_net_inflow' in df.columns:
-            display_cols.append('main_net_inflow')
-        
-        # 准备表格数据
-        table_df = df[display_cols].copy()
-        
-        # 格式化数值
-        format_cols = {
-            'high': '¥{:.2f}',
-            'low': '¥{:.2f}',
-            'close': '¥{:.2f}',
-            'mid_price': '¥{:.2f}',
-            'amplitude': '{:.2f}%'
-        }
-        
-        if 'main_net_inflow' in table_df.columns:
-            format_cols['main_net_inflow'] = '{:,.2f}万'
-            # 将资金流向转换为万元单位
-            table_df['main_net_inflow'] = table_df['main_net_inflow'] / 10000
-        
-        for col, fmt in format_cols.items():
-            if col in table_df.columns:
-                table_df[col] = table_df[col].apply(lambda x: fmt.format(x) if pd.notna(x) else '-')
-        
-        # 重命名列
-        rename_map = {
-            'date': '日期',
-            'high': '最高价',
-            'low': '最低价',
-            'close': '收盘价',
-            'mid_price': '中间价',
-            'amplitude': '振幅(%)',
-            'main_net_inflow': '主力资金(万)'
-        }
-        table_df = table_df.rename(columns=rename_map)
-        
-        # 创建更大更醒目的表格
-        table = dbc.Table.from_dataframe(
-            table_df, 
-            striped=True, 
-            bordered=True, 
-            hover=True,
-            responsive=True,
-            size="lg",  # 使用大尺寸表格
-            className="stock-data-table",
-            style={
-                'fontSize': '16px',  # 更大的字体
-                'width': '100%',     # 占满宽度
-                'minWidth': '800px',  # 最小宽度
-                'marginTop': '20px',
-                'marginBottom': '30px',
-                'border': '2px solid #dee2e6',  # 更醒目的边框
-            }
-        )
-        
-        return html.Div([
-            html.H4("股票数据表格", style={'fontSize': '22px', 'marginBottom': '15px', 'fontWeight': 'bold'}),
-            table
-        ], style={'width': '100%', 'padding': '15px 0px'})
-    
-    def create_stock_chart(self, df, title=None):
-        """
-        创建中间价和振幅图表
-        
-        Parameters:
-        -----------
-        df : pd.DataFrame
-            处理后的股票数据
-        title : str, optional
-            图表标题
+        # 检查是否有数据
+        if df is None or df.empty:
+            return go.Figure()
             
-        Returns:
-        --------
-        dcc.Graph : Dash图表组件
-        """
-        if df.empty:
-            return html.Div("无图表数据")
-            
+        # 过滤非交易日的数据
+        df = df[df['volume'] > 0].copy()
+        
         # 通过判断当前时间决定是否显示当天数据
-        # 如果当前时间小于15:00，则不显示当天数据
-        # 需要筛选非交易日的数据(周末和节假日)
         now = datetime.now()
-        df['date'] = pd.to_datetime(df['date'])
+        current_date = now.strftime("%Y-%m-%d")
+        
+        # 确保日期列是日期格式
+        if 'date' in df.columns and isinstance(df['date'].iloc[0], str):
+            df['date'] = pd.to_datetime(df['date'])
         
         # 如果当前时间小于15:00，且数据中包含当天数据，则去除当天数据
-        if now.hour < 15 and now.date() in df['date'].dt.date.values:
-            df = df[df['date'].dt.date < now.date()]
+        if now.hour < 15 and current_date in df['date'].dt.strftime("%Y-%m-%d").values:
+            df = df[df['date'].dt.strftime("%Y-%m-%d") < current_date]
+            
+        # 重要优化：将真实日期保存为显示用途，但在X轴上使用序号，这样日期之间不会有空隙
+        df['display_date'] = df['date']  # 保存真实日期用于显示
+        df['date'] = range(len(df))  # 将日期列替换为序号，确保连续性
         
-        # 创建图表 - 增强振幅区域显示
+        # 所有情况下始终都显示成交量
+        # 决定子图行数及高度 - 让K线图和中间价重叠显示
+        if show_kline:
+            rows = 3  # K线图+中间价重叠, 振幅, 成交量
+            row_heights = [0.5, 0.25, 0.25]  
+            subplot_titles = ("股票行情", "", "")  # 移除中间标题
+        else:
+            rows = 3  # 中间价, 振幅, 成交量
+            row_heights = [0.5, 0.25, 0.25]  
+            subplot_titles = ("中间价走势 (最高价+最低价)/2", "", "")  # 移除中间标题
+        
+        # 创建子图规格，确保每行都支持secondary_y
+        specs = []
+        for _ in range(rows):
+            specs.append([{"secondary_y": True}])
+            
+        # 创建图表
         fig = make_subplots(
-            rows=2, 
+            rows=rows, 
             cols=1, 
             shared_xaxes=True,
-            vertical_spacing=0.05,  # 减小空间
-            row_heights=[0.6, 0.4],  # 增加振幅子图的高度比例
-            subplot_titles=(
-                "中间价走势 (最高价+最低价)/2", 
-                "日振幅(%)"
-            )
+            vertical_spacing=0.03,
+            row_heights=row_heights,
+            subplot_titles=subplot_titles,
+            specs=specs
         )
         
-        # 添加中间价曲线（醒目且连接所有点）
+        # 初始化行索引，新的布局中K线图和中间价重叠显示
+        price_row = 1      # 第一行显示股价(中间价或K线图+中间价)
+        amplitude_row = 2  # 第二行显示振幅
+        volume_row = 3     # 第三行显示成交量
+        
+        # 1. 绘制K线图和中间价在同一行显示
+        
+        # 添加中间价上下轨 - 始终显示，使用半透明蓝色
+        if 'mid_upper' in df.columns and 'mid_lower' in df.columns:
+            # 上轨线 - 使用半透明蓝色
+            upper_color = 'rgba(30, 144, 255, 0.6)'  # 半透明蓝色
+            lower_color = 'rgba(30, 144, 255, 0.6)'  # 半透明蓝色
+            
+            fig.add_trace(
+                go.Scatter(
+                    x=df['date'],
+                    y=df['mid_upper'],
+                    mode='lines',
+                    name="上轨线",
+                    line=dict(width=1.5, color=upper_color, dash='dot'),
+                    hoverinfo='none'
+                ),
+                row=price_row, col=1
+            )
+            
+            # 下轨线
+            fig.add_trace(
+                go.Scatter(
+                    x=df['date'],
+                    y=df['mid_lower'],
+                    mode='lines',
+                    name="下轨线",
+                    line=dict(width=1.5, color=lower_color, dash='dot'),
+                    hoverinfo='none'
+                ),
+                row=price_row, col=1
+            )
+        
+        # 中间价始终使用蓝色，不再根据是否显示K线图而变化
+        mid_price_color = 'rgba(30, 144, 255, 0.9)'  # 半透明蓝色
+        mid_price_width = 1.5 if show_kline else 2  # K线图模式线条稍细
+        
+        # 添加中间价线
+        hover_data = []
+        for i in range(len(df)):
+            date_str = df.iloc[i]['display_date'].strftime('%Y-%m-%d')
+            mid_price = df.iloc[i]['mid_price']
+            open_price = df.iloc[i].get('open', 0)
+            close_price = df.iloc[i].get('close', 0)
+            high_price = df.iloc[i].get('high', 0)
+            low_price = df.iloc[i].get('low', 0)
+            amplitude = df.iloc[i].get('amplitude', 0)
+            volume = df.iloc[i].get('volume', 0)
+            hover_data.append([date_str, mid_price, open_price, close_price, high_price, low_price, amplitude, volume])
+        
+        hover_template = """
+        <b>%{customdata[0]}</b><br>
+        中间价: %{customdata[1]:.2f}<br>
+        开盘价: %{customdata[2]:.2f}<br>
+        收盘价: %{customdata[3]:.2f}<br>
+        最高价: %{customdata[4]:.2f}<br>
+        最低价: %{customdata[5]:.2f}<br>
+        振幅: %{customdata[6]:.2f}%<br>
+        成交量: %{customdata[7]:,}
+        """
+        
         fig.add_trace(
             go.Scatter(
                 x=df['date'],
                 y=df['mid_price'],
-                mode='lines+markers',  # 线条+标记点
-                name="中间价",
-                line=dict(color='#7D5BA6', width=2.5),  # 淡紫色，高级感更强
-                marker=dict(size=6, color='#7D5BA6'),
-                hovertemplate='%{x|%Y-%m-%d}<br>中间价: %{y:.2f}<extra></extra>',
-            ),
-            row=1, col=1
-        )
-        
-        # 添加价格区间柱状图（最高价-最低价）- 增强可见性
-        fig.add_trace(
-            go.Bar(
-                x=df['date'],
-                y=df['high'] - df['low'],  # 柱状图高度是最高价和最低价之差
-                base=df['low'],           # 柱状图从最低价开始
-                name="最高-最低区间",
-                marker_color='rgba(130, 160, 220, 0.95)',  # 显著增强饱和度和不透明度
-                marker_line=dict(width=2.5, color="rgba(70, 90, 180, 0.9)"),  # 大幅加粗边框
-                opacity=0.95,  # 提高不透明度
-                hovertemplate='%{x|%Y-%m-%d}<br>最高: %{customdata[0]:.2f}<br>最低: %{customdata[1]:.2f}<br>区间: %{customdata[2]:.2f}<extra></extra>',
-                customdata=[[h, l, h-l] for h, l in zip(df['high'], df['low'])],
-                width=0.45,  # 减小宽度到一半
-            ),
-            row=1, col=1
-        )
-        
-        # 增加价格线
-        fig.add_trace(
-            go.Scatter(
-                x=df['date'],
-                y=df['close'],
                 mode='lines',
-                name="收盘价",
-                line=dict(color='rgba(120, 120, 120, 0.65)', width=1.5, dash='dot'),
-                hovertemplate='%{x|%Y-%m-%d}<br>收盘价: %{y:.2f}<extra></extra>',
+                name="中间价",
+                line=dict(width=mid_price_width, color=mid_price_color),
+                customdata=hover_data,
+                hovertemplate=hover_template,
             ),
-            row=1, col=1
-        )
+            row=price_row, col=1
+        )      
+        # 根据是否启用K线图，添加不同形式的K线图
+        # 无论是否启用K线图，都确保有所有必要的列
+        required_columns = ['open', 'high', 'low', 'close']
+        for col in required_columns:
+            if col not in df.columns:
+                if col == 'open':
+                    df['open'] = df['close']
+                elif col == 'high':
+                    df['high'] = df['close'] * 1.001
+                elif col == 'low':
+                    df['low'] = df['close'] * 0.999
+                print(f"警告: {col}列不存在，使用计算值替代")
         
-        # 在振幅子图中添加柱状图，根据振幅比例使用高饱和度颜色
-        colors = []
-        symbols = []  # 为振幅添加箭头符号
-        zero_line = np.zeros(len(df))
+        # 处理缺失值
+        for col in required_columns:
+            if df[col].isna().any():
+                df[col] = df[col].fillna(method='ffill').fillna(method='bfill').fillna(0)
+                
+        # 根据是否显示K线图选择不同的显示方式
+        if show_kline:
+            # 启用K线图时显示标准蜡烛图
+            try:
+                fig.add_trace(
+                    go.Candlestick(
+                        x=df['date'],
+                        open=df['open'],
+                        high=df['high'],
+                        low=df['low'],
+                        close=df['close'],
+                        name="K线",
+                        increasing=dict(line=dict(color='#E01F54'), fillcolor='rgba(224,31,84,0.6)'),  # 红色上涨半透明
+                        decreasing=dict(line=dict(color='#0A8043'), fillcolor='rgba(10,128,67,0.6)'),  # 绿色下跌半透明
+                    ),
+                    row=price_row, col=1
+                )
+            except Exception as e:
+                print(f"K线图显示错误: {e}")
+                # 出错时显示一个简单的线图
+                fig.add_trace(
+                    go.Scatter(
+                        x=df['date'],
+                        y=df['close'],
+                        mode='lines',
+                        name="收盘价",
+                        line=dict(width=2, color='red'),
+                    ),
+                    row=price_row, col=1
+                )
+        else:
+            # 默认视图下只显示简单的高低价蓝色柱状图
+            # 为每个交易日加入高低价柱状图
+            for i in range(len(df)):
+                # 为每日数据添加一个简单的高低价柱状图
+                fig.add_trace(
+                    go.Scatter(
+                        x=[df.iloc[i]['date'], df.iloc[i]['date']],
+                        y=[df.iloc[i]['low'], df.iloc[i]['high']],
+                        mode='lines',
+                        line=dict(width=3, color='rgba(30, 144, 255, 0.8)'),
+                        showlegend=(i==0),  # 只有第一个在图例中显示
+                        name="高低价" if i==0 else None
+                    ),
+                    row=price_row, col=1
+                )
         
-        # 计算振幅变化，添加趋势符号
-        prev_amp = None
-        for i, amp in enumerate(df['amplitude']):
-            # 设置颜色
-            if amp > 5:
-                colors.append('#FF3B30')  # 非常饱和亮红色：振幅>5%
-            elif amp > 3:
-                colors.append('#FF9500')  # 酷炫橙色：振幅>3%
-            elif amp < 1:
-                colors.append('#34C759')  # 鲜艳绿色：振幅<1%
-            else:
-                colors.append('#007AFF')  # 亮蓝色：中等振幅
+        # 中间价已经在前面绘制完成，这里不再重复绘制
+        
+        # 3. 添加振幅图表 - 统一使用半透明蓝色
+        if 'amplitude' in df.columns:
+            # 所有情况下都使用半透明蓝色
+            colors = ['rgba(30, 144, 255, 0.6)'] * len(df)  # 半透明蓝色
             
-            # 添加箭头符号
-            if prev_amp is not None:
-                if amp > prev_amp:
-                    symbols.append('triangle-up')
-                elif amp < prev_amp:
-                    symbols.append('triangle-down')
-                else:
-                    symbols.append('circle')
-            else:
-                symbols.append('circle')
-            
-            prev_amp = amp
-        
-        # 添加振幅变化趋势指示器
-        # 添加指示振幅变化的箭头图标
-        fig.add_trace(
-            go.Scatter(
-                x=df['date'],
-                y=[amp + 0.5 for amp in df['amplitude']],  # 将符号放在柱状图上方
-                mode='markers',
-                name="振幅趋势",
-                marker=dict(
-                    symbol=symbols,
-                    size=10,
-                    color=["green" if s == "triangle-up" else "red" if s == "triangle-down" else "gray" for s in symbols],
-                    line=dict(width=1, color="#333")
+            fig.add_trace(
+                go.Bar(
+                    x=df['date'],
+                    y=df['amplitude'],
+                    name="日振幅(%)",  # 恢复图例标签
+                    marker_color=colors,
+                    opacity=0.9 if show_kline else 1,  # K线图模式下的透明度
+                    customdata=hover_data,
+                    hovertemplate=hover_template,
                 ),
-                hoverinfo="none",
-                showlegend=False
-            ),
-            row=2, col=1
+                row=amplitude_row, col=1
+            )
+        
+        # 4. 添加成交量图表
+        if 'volume' in df.columns:
+            # 计算涨跌颜色
+            if 'open' in df.columns and 'close' in df.columns:
+                vol_colors = ['#E01F54' if row['close'] >= row['open'] else '#0A8043' for _, row in df.iterrows()]
+            else:
+                vol_colors = ['#7D5BA6'] * len(df)  # 默认紫色
+            
+            fig.add_trace(
+                go.Bar(
+                    x=df['date'],
+                    y=df['volume'],
+                    name="成交量",  # 恢复成交量图例标签
+                    marker_color=vol_colors,
+                    customdata=hover_data,
+                    hovertemplate=hover_template,
+                ),
+                row=volume_row, col=1
+            )
+        
+        # 优化图表布局
+        fig.update_layout(
+            title={
+                'text': title or "股票价格分析",
+                'font': dict(size=18),
+                'y': 0.95,
+                'x': 0.5,
+                'xanchor': 'center',
+                'yanchor': 'top'
+            },
+            xaxis_title=None,
+            yaxis_title="价格(元)",
+            xaxis_rangeslider_visible=False,  # 隐藏K线图下方的滑动条
+            plot_bgcolor='white',  # 白色背景
+            paper_bgcolor='white',
+            height=800,  # 增加高度以容纳所有子图
+            margin=dict(l=80, r=50, t=100, b=50),  # 增加左侧边距以容纳标签
+            showlegend=True,
+            legend=dict(
+                orientation="h",
+                yanchor="bottom",
+                y=1.02,
+                xanchor="right",
+                x=1
+            )
         )
         
-        # 添加振幅参考线（水平线） - 增加更多的参考线
-        for level in [1, 3, 5, 10, 15, 20]:
+        # 给振幅和成交量图表添加左侧标题
+        fig.update_yaxes(
+            title_text="振幅(%)",
+            title_standoff=0,  # 标题距离轴的距离
+            title_font=dict(size=14),
+            side="left",  # 将标题放在左侧
+            row=amplitude_row, col=1
+        )
+        
+        fig.update_yaxes(
+            title_text="成交量",  # 恢复成交量标签
+            title_standoff=0,
+            title_font=dict(size=14),
+            side="left",
+            row=volume_row, col=1
+        )
+        
+        # 优化X轴日期显示 - 使用统一序号做坐标，但显示真实日期标签
+        
+        # 添加鼠标悬停显示详情的功能
+        # 为所有图表元素设置悬停显示格式
+        hover_template = """
+        <b>%{customdata[0]}</b><br>
+        中间价: %{customdata[1]:.2f}<br>
+        开盘价: %{customdata[2]:.2f}<br>
+        收盘价: %{customdata[3]:.2f}<br>
+        最高价: %{customdata[4]:.2f}<br>
+        最低价: %{customdata[5]:.2f}<br>
+        振幅: %{customdata[6]:.2f}%<br>
+        成交量: %{customdata[7]:,}
+        """
+        
+        # 准备悬停显示数据
+        hover_data = []
+        for i in range(len(df)):
+            date_str = df.iloc[i]['display_date'].strftime('%Y-%m-%d')
+            mid_price = df.iloc[i]['mid_price']
+            open_price = df.iloc[i].get('open', 0)
+            close_price = df.iloc[i].get('close', 0)
+            high_price = df.iloc[i].get('high', 0)
+            low_price = df.iloc[i].get('low', 0)
+            amplitude = df.iloc[i].get('amplitude', 0)
+            volume = df.iloc[i].get('volume', 0)
+            hover_data.append([date_str, mid_price, open_price, close_price, high_price, low_price, amplitude, volume])
+        
+        # 对于前两个子图，显示较少日期
+        few_dates_step = max(1, len(df) // 8)  # 每8个数据点显示一个日期
+        few_tick_texts = []
+        few_tick_values = []
+        
+        # 使用序号做坐标位置，但显示真实日期
+        for i in range(len(df)):
+            if i % few_dates_step == 0 or i == len(df) - 1:
+                few_tick_texts.append(df.iloc[i]['display_date'].strftime('%m-%d'))
+                few_tick_values.append(i)  # 使用序号作为坐标值
+        
+        # 对于最后一个子图（底部），显示更多日期
+        many_dates_step = max(1, len(df) // 20)  # 每4个数据点显示一个日期
+        many_tick_texts = []
+        many_tick_values = []
+        
+        for i in range(len(df)):
+            if i % many_dates_step == 0 or i == len(df) - 1:
+                many_tick_texts.append(df.iloc[i]['display_date'].strftime('%m-%d'))
+                many_tick_values.append(i)  # 使用序号作为坐标值
+        
+        # 对非底部子图应用较少的日期
+        for i in range(1, rows):
+            fig.update_xaxes(
+                tickangle=30,  # 倾斜标签
+                tickmode='array',
+                tickvals=few_tick_values,  # 序号做坐标
+                ticktext=few_tick_texts,   # 真实日期做标签
+                row=i, col=1,
+                showticklabels=(i==rows-1)  # 只在最后一个子图上显示标签
+            )
+        
+        # 对底部子图应用更多的日期
+        fig.update_xaxes(
+            tickangle=30,
+            tickmode='array',
+            tickvals=many_tick_values,  # 序号做坐标
+            ticktext=many_tick_texts,   # 真实日期做标签
+            row=rows, col=1
+        )
+        
+        # 设置Y轴格式
+        fig.update_yaxes(gridcolor='rgba(0,0,0,0.1)', row=price_row, col=1)  # 中间价/K线图Y轴
+        fig.update_yaxes(gridcolor='rgba(0,0,0,0.1)', row=amplitude_row, col=1)  # 振幅Y轴
+        
+        # 添加振幅参考线
+        for level in [2, 4, 6, 8]:
             fig.add_shape(
                 type="line",
                 x0=df['date'].min(),
@@ -244,197 +383,86 @@ class Visualizer:
                 x1=df['date'].max(),
                 y1=level,
                 line=dict(color="rgba(0,0,0,0.2)", width=1, dash="dot"),
-                row=2, col=1
-            )
-            # 添加参考线标签
-            fig.add_annotation(
-                x=df['date'].max(),
-                y=level,
-                text=f"{level}%",
-                showarrow=False,
-                xshift=10,
-                font=dict(size=9, color="rgba(0,0,0,0.7)"),
-                row=2, col=1
+                row=amplitude_row, col=1
             )
         
-        # 添加更加醒目的振幅柱状图 - 显著增强可视性
-        fig.add_trace(
-            go.Bar(
-                x=df['date'],
-                y=df['amplitude'],
-                name="振幅(%)",
-                marker_color=colors,
-                marker_line=dict(width=3, color="rgba(40,40,40,0.6)"),  # 显著加粗边框
-                hovertemplate='%{x|%Y-%m-%d}<br>振幅: %{y:.2f}%<extra></extra>',
-                width=0.45,  # 减小宽度到一半
-                opacity=1.0,  # 完全不透明
-                text=[f"{amp:.1f}%" for amp in df['amplitude']],  # 添加振幅文字标签
-                textposition='outside',  # 文字放在柱子上方
-                textfont=dict(size=10, color='rgba(0,0,0,0.7)')  # 设置文字大小和颜色
-            ),
-            row=2, col=1
-        )
-        
-        # 准备日期标签，只显示实际交易日的日期
-        date_labels = df['date'].dt.strftime('%m-%d').tolist()
-        
-        # 设置图表布局 - 增大图表尺寸和可读性
-        fig.update_layout(
-            title={
-                'text': title or "中间价与振幅分析",
-                'font': dict(size=24, color='#444'),
-                'y': 0.95,
-                'x': 0.5,
-                'xanchor': 'center',
-                'yanchor': 'top'
-            },
-            xaxis_title=None,
-            yaxis_title={
-                'text': "价格(元)",
-                'font': dict(size=16)
-            },
-            xaxis_rangeslider_visible=False,
-            plot_bgcolor='white',  # 纯白背景
-            paper_bgcolor='white',
-            height=750,  # 显著增加高度
-            margin=dict(l=50, r=30, t=100, b=50),  # 调整边距增加上部空间
-            legend=dict(
-                orientation="h",
-                yanchor="bottom",
-                y=1.02,
-                xanchor="left",
-                x=0.01,
-                bgcolor="white",
-                bordercolor="#f2f2f2",
-                borderwidth=1,
-                font=dict(size=14),  # 增大图例字体
-            ),
-            hovermode="x unified",
-            font=dict(family="Arial, sans-serif", size=11, color="#444")
-        )
-        
-        # 将X轴改为分类轴，只显示有交易数据的日期，无间隔连续显示
-        fig.update_xaxes(
-            showgrid=True,
-            gridwidth=0.5,
-            gridcolor='#f2f2f2',
-            zeroline=False,
-            type='category',  # 使用分类轴，连续显示交易日
-            tickmode='array',
-            tickvals=list(range(len(df))),
-            ticktext=date_labels,
-            tickangle=-30,  # 倾斜日期标签
-            tickfont=dict(size=10),
-        )
-        
-        # 添加网格线
-        fig.update_yaxes(
-            showgrid=True,
-            gridwidth=0.5,
-            gridcolor='#f2f2f2',
-            zeroline=False,
-            row=1, col=1,
-            title_font=dict(size=12),
-            tickfont=dict(size=10),
-        )
-        
-        # 振幅图的Y轴设置
-        fig.update_yaxes(
-            title_text="振幅(%)", 
-            row=2, col=1,
-            range=[0, 20],  # 固定范围为0-20%
-            title_font=dict(size=12),
-            tickfont=dict(size=10),
-            showgrid=True,
-            gridwidth=0.5,
-            gridcolor='#f2f2f2',
-        )
-        
+        # 创建图表组件
         return dcc.Graph(
-            figure=fig, 
-            id='stock-chart',
+            figure=fig,
+            id="stock-chart",
             config={
-                'displayModeBar': False,  # 隐藏工具栏
-                'displaylogo': False,
-                'responsive': True,
-            },
-            style={"border": "1px solid #e0e0e0", "border-radius": "5px"}
+                'displayModeBar': True,
+                'scrollZoom': True,
+                'modeBarButtonsToRemove': ['lasso2d', 'select2d']
+            }
         )
-    
-    def create_strategy_chart(self, df, strategy_results):
-        """
-        创建策略回测图表
         
-        Parameters:
-        -----------
-        df : pd.DataFrame
-            处理后的股票数据
-        strategy_results : dict
-            策略回测结果
+    def create_stock_table(self, df):
+        """创建股票数据表格，显示所有可用数据"""
+        if df.empty:
+            return html.Div("无表格数据")
             
-        Returns:
-        --------
-        dcc.Graph : Dash图表组件
-        """
-        if df.empty or not strategy_results:
-            return html.Div("无策略回测数据")
+        # 格式化日期列
+        df['date'] = pd.to_datetime(df['date']).dt.strftime('%Y-%m-%d')
         
-        trades = strategy_results.get('trades', [])
-        if not trades:
-            return html.Div("无交易记录")
+        # 全面的数据列定义，包含所有可能有的数据
+        display_cols = {
+            'date': '日期',
+            'open': '开盘价',
+            'close': '收盘价',
+            'high': '最高价', 
+            'low': '最低价',
+            'volume': '成交量', 
+            'amount': '成交额',
+            'mid_price': '中间价',
+            'amplitude': '振幅(%)',
+            'mid_upper': '中间价上轨',
+            'mid_lower': '中间价下轨'
+        }
         
-        # 创建图表
-        fig = go.Figure()
+        # 过滤存在的列
+        cols_to_show = [col for col in display_cols.keys() if col in df.columns]
         
-        # 添加价格曲线
-        fig.add_trace(
-            go.Scatter(
-                x=df['date'],
-                y=df['close'],
-                mode='lines',
-                name="收盘价",
-                line=dict(color='rgba(100, 100, 100, 0.8)', width=2)
-            )
+        # 创建一个新的DataFrame，只包含要显示的列
+        table_df = df[cols_to_show].copy()
+        
+        # 重命名列
+        table_df.columns = [display_cols[col] for col in cols_to_show]
+        
+        # 格式化数值
+        for col in table_df.columns:
+            if col == '日期':
+                continue  # 跳过日期列
+            elif col == '成交量':
+                # 成交量显示为整数
+                table_df[col] = table_df[col].apply(lambda x: f"{int(x):,}")
+            elif col == '成交额':
+                # 成交额保留两位小数并加上千位分隔符
+                table_df[col] = table_df[col].apply(lambda x: f"{x:,.2f}")
+            else:
+                # 其他数值保留两位小数
+                table_df[col] = table_df[col].round(2)
+        
+        # 限制显示的行数，避免表格过长
+        table_df = table_df.tail(30)  # 显示最近的30行数据
+        
+        # 创建表格组件
+        table = dbc.Table.from_dataframe(
+            table_df, 
+            striped=True, 
+            bordered=True,
+            hover=True,
+            responsive=True,
+            className="table-sm"
         )
         
-        # 添加中间价通道
-        fig.add_trace(
-            go.Scatter(
-                x=df['date'],
-                y=df['mid_upper'],
-                mode='lines',
-                name="卖出价(+1%)",
-                line=dict(color='rgba(255, 0, 0, 0.5)', width=1)
-            )
-        )
-        
-        fig.add_trace(
-            go.Scatter(
-                x=df['date'],
-                y=df['mid_lower'],
-                mode='lines',
-                name="买入价(-1%)",
-                line=dict(color='rgba(0, 255, 0, 0.5)', width=1)
-            )
-        )
-        
-        return dcc.Graph(figure=fig, id='strategy-chart')
+        return html.Div([
+            html.H5("近期数据", className="text-center my-3"),
+            table
+        ])
     
     def create_summary_cards(self, df, strategy_results=None):
-        """
-        创建数据摘要卡片
-        
-        Parameters:
-        -----------
-        df : pd.DataFrame
-            处理后的股票数据
-        strategy_results : dict, optional
-            策略回测结果
-            
-        Returns:
-        --------
-        html.Div : Dash卡片组件
-        """
+        """创建数据摘要卡片"""
         if df.empty:
             return html.Div("无数据摘要")
         
@@ -479,46 +507,13 @@ class Visualizer:
         )
         
         # 中间价通道卡片
-        latest_mid = latest_data['mid_price']
-        latest_upper = latest_data['mid_upper']
-        latest_lower = latest_data['mid_lower']
-        
-        cards.append(
-            dbc.Card(
-                dbc.CardBody([
-                    html.H5("中间价通道", className="card-title"),
-                    html.H3(f"¥{latest_mid:.2f}", className="card-text text-success"),
-                    html.P([
-                        "上轨: ",
-                        html.Span(f"¥{latest_upper:.2f}", className="text-danger")
-                    ], className="card-text"),
-                    html.P([
-                        "下轨: ",
-                        html.Span(f"¥{latest_lower:.2f}", className="text-success")
-                    ], className="card-text"),
-                ]),
-                className="m-2 shadow"
-            )
-        )
-        
-        # 如果有策略回测结果，添加策略卡片
-        if strategy_results:
-            total_return = strategy_results.get('total_return', 0)
-            trade_count = len(strategy_results.get('trades', []))
-            win_rate = strategy_results.get('win_rate', 0) * 100
-            
+        if 'mid_price' in df.columns:
+            latest_mid = latest_data['mid_price']
             cards.append(
                 dbc.Card(
                     dbc.CardBody([
-                        html.H5("策略回测", className="card-title"),
-                        html.H3([
-                            html.Span(
-                                f"{total_return:.2f}%", 
-                                className=f"text-{'success' if total_return >= 0 else 'danger'}"
-                            )
-                        ], className="card-text"),
-                        html.P(f"交易次数: {trade_count}", className="card-text"),
-                        html.P(f"胜率: {win_rate:.1f}%", className="card-text"),
+                        html.H5("中间价", className="card-title"),
+                        html.H3(f"¥{latest_mid:.2f}", className="card-text text-success"),
                     ]),
                     className="m-2 shadow"
                 )
@@ -529,3 +524,29 @@ class Visualizer:
             dbc.Row([dbc.Col(card, width=12//len(cards)) for card in cards]),
             className="mb-4"
         )
+    
+    def create_strategy_chart(self, df, strategy_results):
+        """创建策略回测图表"""
+        if df.empty:
+            return html.Div("无回测数据")
+        
+        # 创建图表
+        fig = go.Figure()
+        
+        # 添加价格曲线
+        fig.add_trace(
+            go.Scatter(
+                x=df['date'],
+                y=df['close'],
+                mode='lines',
+                name="收盘价",
+                line=dict(color='rgba(100, 100, 100, 0.8)', width=2)
+            )
+        )
+        
+        # 添加策略相关内容
+        if strategy_results:
+            # 这里可以添加策略特定的可视化
+            pass
+        
+        return dcc.Graph(figure=fig, id='strategy-chart')
