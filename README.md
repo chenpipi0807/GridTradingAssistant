@@ -8,8 +8,14 @@
 - **中间价分析**：计算并展示基于(最高价+最低价)/2的中间价指标与振幅分析
 - **可视化图表**：K线图与中间价曲线结合展示，支持图表缩放和数据细节查看
 
-![微信截图_20250514135936](https://github.com/user-attachments/assets/91b20efa-67ba-45d6-9e0a-33216b6f84ad)
+![微信截图_20250515013111](https://github.com/user-attachments/assets/1bc5d063-57df-4a88-a5eb-9d12142f0fbf)
+![微信截图_20250515013053](https://github.com/user-attachments/assets/062dd949-4fcd-468d-9979-d43637ac3da1)
 
+
+## 更新日志
+
+-5月15日
+-新增了成交量与K线图
 
 
 ## 安装指南
