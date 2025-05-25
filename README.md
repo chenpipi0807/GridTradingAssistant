@@ -16,10 +16,14 @@
 - **多模型支持**：提供推理增强、通用对话和代码专家等多种模型
 - **数据上传与分析**：可上传股票数据文件给AI进行深度分析
 - **枢纽点策略支持**：支持计算枢纽点和支撑/阻力位，辅助网格交易决策
+  
 
 ![微信截图_20250525183908](https://github.com/user-attachments/assets/6af58bd8-aebd-42bc-8664-df0e737a6f32)
-![微信截图_20250525183932](https://github.com/user-attachments/assets/0bd93a3b-fd1e-4ee2-b5e9-a22e294c76d0)
-![微信截图_20250525183940](https://github.com/user-attachments/assets/b0879d22-ec6f-44d6-87a9-cf22ba6d5396)
+
+![微信截图_20250525200009](https://github.com/user-attachments/assets/e9505a82-3022-46f5-9f4e-f238deaf6675)
+
+![微信截图_20250525200119](https://github.com/user-attachments/assets/23e43437-4fa9-4826-a1dc-a1493749d327)
+
 
 
 ## 更新日志
