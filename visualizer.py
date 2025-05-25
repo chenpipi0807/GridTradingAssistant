@@ -81,36 +81,41 @@ class Visualizer:
         
         # 1. 绘制K线图和中间价在同一行显示
         
-        # 添加中间价上下轨 - 始终显示，使用半透明蓝色
-        if 'mid_upper' in df.columns and 'mid_lower' in df.columns:
-            # 上轨线 - 使用半透明蓝色
-            upper_color = 'rgba(30, 144, 255, 0.6)'  # 半透明蓝色
-            lower_color = 'rgba(30, 144, 255, 0.6)'  # 半透明蓝色
-            
-            fig.add_trace(
-                go.Scatter(
-                    x=df['date'],
-                    y=df['mid_upper'],
-                    mode='lines',
-                    name="上轨线",
-                    line=dict(width=1.5, color=upper_color, dash='dot'),
-                    hoverinfo='none'
-                ),
-                row=price_row, col=1
-            )
-            
-            # 下轨线
-            fig.add_trace(
-                go.Scatter(
-                    x=df['date'],
-                    y=df['mid_lower'],
-                    mode='lines',
-                    name="下轨线",
-                    line=dict(width=1.5, color=lower_color, dash='dot'),
-                    hoverinfo='none'
-                ),
-                row=price_row, col=1
-            )
+        # 添加最高价和最低价曲线作为上下轨
+        # 上轨线 - 使用半透明红色表示最高价
+        upper_color = 'rgba(255, 99, 71, 0.6)'  # 半透明红色
+        # 下轨线 - 使用半透明绿色表示最低价
+        lower_color = 'rgba(50, 205, 50, 0.6)'  # 半透明绿色
+        
+        # 添加最高价上轨线
+        fig.add_trace(
+            go.Scatter(
+                x=df['date'],
+                y=df['high'],
+                mode='lines',
+                name="最高价",
+                line=dict(width=1.5, color=upper_color, dash='dot'),
+                hoverinfo='text',
+                hovertext=[f"日期: {d.strftime('%Y-%m-%d') if isinstance(d, pd.Timestamp) else d}<br>最高价: {h:.2f}" 
+                          for d, h in zip(df['display_date'], df['high'])],
+            ),
+            row=price_row, col=1
+        )
+        
+        # 添加最低价下轨线
+        fig.add_trace(
+            go.Scatter(
+                x=df['date'],
+                y=df['low'],
+                mode='lines',
+                name="最低价",
+                line=dict(width=1.5, color=lower_color, dash='dot'),
+                hoverinfo='text',
+                hovertext=[f"日期: {d.strftime('%Y-%m-%d') if isinstance(d, pd.Timestamp) else d}<br>最低价: {l:.2f}" 
+                          for d, l in zip(df['display_date'], df['low'])],
+            ),
+            row=price_row, col=1
+        )
         
         # 中间价始终使用蓝色，不再根据是否显示K线图而变化
         mid_price_color = 'rgba(30, 144, 255, 0.9)'  # 半透明蓝色
