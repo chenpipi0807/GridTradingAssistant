@@ -8,11 +8,15 @@
 - **中间价分析**：计算并展示基于(最高价+最低价)/2的中间价指标与振幅分析
 - **可视化图表**：K线图与中间价曲线结合展示，支持图表缩放和数据细节查看
 
-![微信截图_20250515013111](https://github.com/user-attachments/assets/1bc5d063-57df-4a88-a5eb-9d12142f0fbf)
-![微信截图_20250515013053](https://github.com/user-attachments/assets/062dd949-4fcd-468d-9979-d43637ac3da1)
+![微信截图_20250525183908](https://github.com/user-attachments/assets/6af58bd8-aebd-42bc-8664-df0e737a6f32)
+![微信截图_20250525183932](https://github.com/user-attachments/assets/0bd93a3b-fd1e-4ee2-b5e9-a22e294c76d0)
+![微信截图_20250525183940](https://github.com/user-attachments/assets/b0879d22-ec6f-44d6-87a9-cf22ba6d5396)
 
 
 ## 更新日志
+
+-5月25日
+-新增Deepseek的AI对话功能，须自行注册api并填入key
 
 -5月15日
 -新增了成交量与K线图
