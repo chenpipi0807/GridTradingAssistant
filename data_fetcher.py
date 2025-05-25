@@ -45,7 +45,7 @@ class DataFetcher:
             return code.lower()
         return code
     
-    def get_stock_data(self, code, start_date, end_date=None):
+    def get_stock_data(self, code, start_date, end_date=None, data_source=None):
         """
         获取指定时间范围内的股票数据
         
@@ -57,6 +57,8 @@ class DataFetcher:
             开始日期，格式 'YYYY-MM-DD'
         end_date : str, optional
             结束日期，格式 'YYYY-MM-DD'，默认为当前日期
+        data_source : str, optional
+            数据源名称，可选择性覆盖实例化时设置的数据源
             
         Returns:
         --------
@@ -65,12 +67,19 @@ class DataFetcher:
         if end_date is None:
             end_date = datetime.now().strftime('%Y-%m-%d')
             
-        if self.data_source == "eastmoney":
-            return self._get_from_eastmoney(code, start_date, end_date)
-        elif self.data_source == "tushare":
-            return self._get_from_tushare(code, start_date, end_date)
+        # 使用传入的data_source（如果有），否则使用实例变量
+        source = data_source if data_source else self.data_source
+            
+        if source == "eastmoney":
+            df, stock_info = self._get_from_eastmoney(code, start_date, end_date)
+            return df, stock_info
+        elif source == "tushare":
+            df = self._get_from_tushare(code, start_date, end_date)
+            # 对于tushare，暂时构造一个简单的stock_info
+            stock_info = {"code": code, "name": code, "market": ""}
+            return df, stock_info
         else:
-            raise ValueError(f"不支持的数据源: {self.data_source}")
+            raise ValueError(f"不支持的数据源: {source}")
     
     def _get_from_eastmoney(self, code, start_date, end_date):
         """从东方财富获取数据"""
@@ -78,10 +87,17 @@ class DataFetcher:
         
         # 去掉开头的sh或sz以适应东方财富API
         secid = normalized_code
+        market = ""
+        stock_code = normalized_code
+        
         if normalized_code.startswith('sh'):
             secid = f"1.{normalized_code[2:]}"
+            market = "上海"
+            stock_code = normalized_code[2:]
         elif normalized_code.startswith('sz'):
             secid = f"0.{normalized_code[2:]}"
+            market = "深圳"
+            stock_code = normalized_code[2:]
         
         # 转换日期格式
         start_timestamp = int(time.mktime(time.strptime(start_date, '%Y-%m-%d'))) * 1000
@@ -104,7 +120,7 @@ class DataFetcher:
             data = response.json()
             
             if 'data' not in data or data['data'] is None or 'klines' not in data['data']:
-                return pd.DataFrame()
+                return pd.DataFrame(), {}
                 
             stock_data = []
             for kline in data['data']['klines']:
@@ -118,15 +134,28 @@ class DataFetcher:
                         'low': float(parts[4]),
                         'volume': float(parts[5]),
                         'amount': float(parts[6]),
+                        'amplitude': (float(parts[3]) - float(parts[4])) / float(parts[1]) * 100 if float(parts[1]) > 0 else 0  # 振幅
                     })
             
             df = pd.DataFrame(stock_data)
             df['code'] = code
-            return df
+            
+            # 获取股票名称和其他信息
+            stock_name = ""
+            if 'data' in data and 'name' in data['data']:
+                stock_name = data['data']['name']
+            
+            stock_info = {
+                "code": normalized_code,
+                "name": stock_name,
+                "market": market
+            }
+            
+            return df, stock_info
         
         except Exception as e:
             print(f"从东方财富获取数据时出错: {e}")
-            return pd.DataFrame()
+            return pd.DataFrame(), {}
     
     def _get_from_tushare(self, code, start_date, end_date):
         """从Tushare获取数据"""

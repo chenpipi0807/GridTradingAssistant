@@ -1,0 +1,1000 @@
+"""DeepSeek UI 模块 - 提供DeepSeek对话界面的Dash组件"""
+import dash
+from dash import dcc, html, Input, Output, State, callback, ALL, MATCH, ctx, no_update
+from dash.exceptions import PreventUpdate
+import dash_bootstrap_components as dbc
+import os
+import uuid
+import json
+import base64
+import traceback
+import re
+import types
+from datetime import datetime
+import pandas as pd
+
+from deepseek_api import DeepSeekAPI
+
+# 创建缓存目录
+temp_dir = os.path.join(os.path.dirname(os.path.abspath(__file__)), "temp")
+chat_temp_dir = os.path.join(os.path.dirname(os.path.abspath(__file__)), "chattemp")
+os.makedirs(temp_dir, exist_ok=True)
+os.makedirs(chat_temp_dir, exist_ok=True)
+
+# 初始化DeepSeek API
+deepseek_api = DeepSeekAPI()
+
+def get_available_stock_files():
+    """获取temp目录下的所有股票数据文件"""
+    stock_files = []
+    try:
+        # 检查temp目录是否存在
+        if not os.path.exists("temp"):
+            os.makedirs("temp")
+            return stock_files
+        
+        # 遍历temp目录下的所有csv文件
+        for filename in os.listdir("temp"):
+            if filename.endswith(".csv"):
+                filepath = os.path.join("temp", filename)
+                
+                # 尝试提取股票代码和日期范围
+                parts = filename.split("_")
+                stock_code = parts[0] if len(parts) > 0 else "未知"
+                
+                # 如果有日期部分，尝试提取
+                date_range = ""
+                if len(parts) > 2:
+                    start_date = parts[1]
+                    end_date = parts[2].split(".")[0] if "." in parts[2] else parts[2]
+                    date_range = f"{start_date} 至 {end_date}"
+                
+                # 尝试读取文件的第一行获取数据列
+                headers = []
+                try:
+                    with open(filepath, "r", encoding="utf-8") as f:
+                        first_line = f.readline().strip()
+                        headers = first_line.split(",")
+                except Exception as e:
+                    print(f"读取文件头时出错: {e}")
+                
+                # 添加到文件列表
+                stock_files.append({
+                    "path": filepath,
+                    "name": filename,
+                    "stock_code": stock_code,
+                    "date_range": date_range,
+                    "headers": headers,
+                    "size": os.path.getsize(filepath)
+                })
+    except Exception as e:
+        print(f"获取股票文件列表时出错: {e}")
+    
+    return stock_files
+
+def get_deepseek_layout():
+    """获取DeepSeek对话标签页的布局"""
+    
+    # 初始化存储组件，确保它们在回调运行前已存在
+    initial_chat_messages = []
+    initial_session_data = {"session_id": str(uuid.uuid4()), "messages": []}
+    initial_uploaded_files = []
+    
+    # 获取可用模型列表
+    try:
+        models = deepseek_api.get_available_models()
+        model_options = [{"label": model["name"], "value": model["id"]} for model in models]
+    except Exception as e:
+        print(f"无法获取模型列表: {e}")
+        model_options = [
+            {"label": "DeepSeek-R1 (推理增强)", "value": "deepseek-reasoner"},
+            {"label": "DeepSeek Chat (通用对话)", "value": "deepseek-chat"},
+            {"label": "DeepSeek Coder (代码专家)", "value": "deepseek-coder"}
+        ]
+    
+    # 获取历史会话列表
+    sessions = deepseek_api.get_all_chat_sessions()
+    
+    # 生成会话列表项
+    session_items = []
+    for session in sessions:
+        session_items.append(
+            dbc.ListGroupItem(
+                [
+                    html.Div(
+                        [
+                            html.Span(session["title"], className="fw-bold"),
+                            html.Small(session["time"], className="text-muted ms-2"),
+                        ],
+                        className="d-flex justify-content-between align-items-center"
+                    ),
+                    html.Div(
+                        [
+                            dbc.Button(
+                                "加载", 
+                                id={"type": "load-session", "index": session["id"]},
+                                color="light", 
+                                size="sm", 
+                                className="me-1"
+                            ),
+                            dbc.Button(
+                                "删除", 
+                                id={"type": "delete-session", "index": session["id"]},
+                                color="danger", 
+                                size="sm"
+                            ),
+                        ],
+                        className="mt-1"
+                    )
+                ],
+                className="py-2"
+            )
+        )
+    
+    # 如果没有会话，显示提示信息
+    if not session_items:
+        session_items = [dbc.ListGroupItem("暂无历史会话", className="text-center text-muted py-3")]
+    
+    # 构建布局
+    layout = html.Div([
+        # 添加隐藏的存储组件，确保回调能找到它们
+        dcc.Store(id="chat-session-store", data=initial_session_data),
+        dcc.Store(id="uploaded-files-store", data=initial_uploaded_files),
+        dcc.Store(id="selected-file-store", data={}),
+        dcc.Store(id="chart-data-store", data={}),
+        html.Div(id="chat-messages-container", children=initial_chat_messages, style={"display": "block"}),
+        html.Div(id="session-list-container", style={"display": "block"}),
+        html.Div(id="file-upload-list-container", style={"display": "block"}),
+        dbc.Row([
+            # 左侧控制面板
+            dbc.Col([
+                # API密钥设置
+                dbc.Card([
+                    dbc.CardHeader(html.H6("DeepSeek API设置", className="mb-0 small fw-bold", style={"color": "#4D4B63"})),
+                    dbc.CardBody([
+                        dbc.InputGroup([
+                            dbc.Input(
+                                id="api-key-input",
+                                placeholder="输入DeepSeek API密钥",
+                                type="password",
+                                value=deepseek_api.api_key or "",
+                                className="border-light-subtle",
+                            ),
+                            dbc.Button(
+                                "保存", 
+                                id="save-api-key-btn", 
+                                color="light", 
+                                size="sm",
+                                style={"background": "#7D5BA6", "color": "white", "border": "none"}
+                            ),
+                        ], size="sm", className="mb-3"),
+                        
+                        # 模型选择
+                        dbc.Label("选择模型", className="mb-1 small fw-bold", style={"color": "#4D4B63"}),
+                        dcc.Dropdown(
+                            id="model-dropdown",
+                            options=model_options,
+                            value="deepseek-reasoner",  # 默认选择DeepSeek-R1
+                            className="mb-3 small",
+                            style={"fontSize": "12px"},
+                        ),
+                        
+                        # 文件上传
+                        dbc.Label("上传数据文件（可选）", className="mb-1 small fw-bold", style={"color": "#4D4B63"}),
+                        html.Div([
+                            html.P("数据文件", className="mb-1 small fw-bold"),
+                            
+                            # 当前可用的股票数据文件
+                            html.Div([
+                                html.P("当前可用的股票数据文件", className="small mb-1 text-muted"),
+                                html.Div(id="available-stock-files", className="border rounded p-2 mb-2"),
+                                
+                                # 上传股票数据按钮
+                                dbc.Button(
+                                    [
+                                        html.I(className="fas fa-file-upload me-1"),
+                                        "上传当前股票数据到对话"
+                                    ],
+                                    id="upload-stock-data-btn",
+                                    color="light",
+                                    size="sm",
+                                    className="mb-3 mt-1"
+                                ),
+                            ]),
+                            
+                            # 其他文件上传
+                            html.Div([
+                                html.P("上传其他文件", className="small mb-1 text-muted"),
+                                dcc.Upload(
+                                    id="upload-data",
+                                    children=html.Div([
+                                        "拖放文件到此处或 ",
+                                        html.A("点击选择文件")
+                                    ]),
+                                    style={
+                                        "width": "100%",
+                                        "height": "60px",
+                                        "lineHeight": "60px",
+                                        "borderWidth": "1px",
+                                        "borderStyle": "dashed",
+                                        "borderRadius": "5px",
+                                        "textAlign": "center",
+                                        "margin": "10px 0",
+                                    },
+                                    multiple=True
+                                ),
+                            ]),
+                            
+                            # 已上传文件列表
+                            html.Div([
+                                html.P("已上传文件", className="small mb-1 text-muted"),
+                                html.Div(id="uploaded-files-list", className="border rounded p-2")
+                            ]),
+                            
+                        ], className="mb-3"),
+                        
+                        # 新建会话按钮
+                        dbc.Button(
+                            "新建会话",
+                            id="new-chat-btn",
+                            color="light",
+                            className="w-100 mb-3",
+                            size="sm",
+                            style={"background": "#A65B56", "color": "white", "border": "none"},
+                        ),
+                        
+                        # 历史会话
+                        dbc.Label("历史会话", className="mb-1 small fw-bold", style={"color": "#4D4B63"}),
+                        dbc.ListGroup(
+                            session_items,
+                            id="session-list",
+                            className="small",
+                            style={"maxHeight": "300px", "overflowY": "auto"}
+                        ),
+                    ]),
+                ], className="shadow-sm mb-3", style={"border": "1px solid #EFEDF5", "background": "#FCFCFE"}),
+                
+                # 策略提示
+                dbc.Card([
+                    dbc.CardHeader(html.H6("策略提示", className="mb-0 small fw-bold", style={"color": "#4D4B63"})),
+                    dbc.CardBody([
+                        html.P("枢轴点策略是一种技术分析方法，用于确定市场趋势和潜在的支撑/阻力位。", className="small mb-2"),
+                        html.P("常见的枢轴点计算公式:", className="small mb-2"),
+                        html.Pre(
+                            "枢轴点(P) = (高点 + 低点 + 收盘价) / 3\n"
+                            "支撑位1(S1) = (2 × P) - 高点\n"
+                            "支撑位2(S2) = P - (高点 - 低点)\n"
+                            "阻力位1(R1) = (2 × P) - 低点\n"
+                            "阻力位2(R2) = P + (高点 - 低点)",
+                            className="small bg-light p-2 rounded"
+                        ),
+                        html.P("您可以询问AI关于如何利用枢轴点进行网格交易策略制定。", className="small mt-2"),
+                    ]),
+                ], className="shadow-sm", style={"border": "1px solid #EFEDF5", "background": "#FCFCFE"}),
+            ], width=3, className="pe-0"),  # 左侧列去除右边距
+            
+            # 右侧对话区域
+            dbc.Col([
+                dbc.Card([
+                    dbc.CardHeader([
+                        html.Div([
+                            html.H6("DeepSeek AI 对话", className="mb-0 d-inline fw-bold", style={"color": "#4D4B63"}),
+                            html.Span(
+                                id="current-model-display",
+                                className="ms-2 small",
+                                style={"color": "#8E7E64"}
+                            ),
+                        ], className="d-inline"),
+                    ], className="py-2 border-bottom", style={"border-left": "3px solid #7D5BA6", "background": "#FCFCFE"}),
+                    
+                    # 对话内容区域
+                    dbc.CardBody([
+                        html.Div(
+                            id="chat-messages-container",
+                            className="chat-container mb-3",
+                            style={
+                                "height": "calc(100vh - 250px)",
+                                "overflowY": "auto",
+                                "padding": "10px"
+                            }
+                        ),
+                        
+                        # 常用问题快捷选项
+                        html.Div([
+                            html.P("常用问题", className="mb-1 small fw-bold"),
+                            dbc.ButtonGroup(
+                                [
+                                    dbc.Button("分析这支股票的走势", id="quick-q1", color="light", size="sm", className="me-1 mb-1"),
+                                    dbc.Button("计算最佳网格交易区间", id="quick-q2", color="light", size="sm", className="me-1 mb-1"),
+                                    dbc.Button("这支股票适合网格交易吗", id="quick-q3", color="light", size="sm", className="me-1 mb-1"),
+                                    dbc.Button("解读这些数据的含义", id="quick-q4", color="light", size="sm", className="me-1 mb-1"),
+                                    dbc.Button("分析振幅和中间价趋势", id="quick-q5", color="light", size="sm", className="me-1 mb-1"),
+                                ],
+                                className="flex-wrap"
+                            ),
+                        ], className="mb-3 mt-2"),
+                        
+                        # 当前分析的股票信息
+                        html.Div([
+                            html.P("当前分析的股票数据", className="mb-1 small fw-bold"),
+                            html.Div(id="current-stock-info", className="small text-muted")
+                        ], className="mb-3"),
+                        
+                        # 输入区域
+                        dbc.InputGroup([
+                            dbc.Textarea(
+                                id="chat-input",
+                                placeholder="在此输入问题...",
+                                style={"resize": "none", "height": "80px"},
+                                className="rounded-start"
+                            ),
+                            dbc.Button(
+                                html.I(className="fas fa-paper-plane"), 
+                                id="send-message-btn", 
+                                color="primary",
+                                className="rounded-end"
+                            ),
+                        ], className="mt-3"),
+                        
+                        # 状态提示
+                        dbc.Alert(
+                            "请先设置API密钥",
+                            id="chat-status-alert",
+                            color="warning",
+                            dismissable=True,
+                            is_open=not deepseek_api.api_key,
+                            className="mb-0 py-2 small"
+                        ),
+                    ], className="p-3", style={"background": "#FFFFFF"}),
+                ], className="shadow-sm h-100", style={"border": "1px solid #EFEDF5"}),
+            ], width=9, className="ps-3"),  # 右侧列去除左边距
+        ]),
+        
+        # 存储组件
+        dcc.Store(id="chat-session-store", data={"session_id": str(uuid.uuid4()), "messages": []}),
+        dcc.Store(id="uploaded-files-store", data=[]),
+    ])
+    
+    return layout
+
+def parse_contents(contents, filename):
+    """解析上传的文件内容"""
+    content_type, content_string = contents.split(',')
+    decoded = base64.b64decode(content_string)
+    
+    try:
+        # 保存文件到临时目录
+        file_path = os.path.join(temp_dir, filename)
+        with open(file_path, 'wb') as f:
+            f.write(decoded)
+        
+        # 返回文件信息
+        return {
+            "name": filename,
+            "path": file_path,
+            "size": len(decoded),
+            "type": content_type
+        }
+    except Exception as e:
+        print(f"处理文件时出错: {e}")
+        return None
+
+def register_callbacks(app):
+    """注册DeepSeek UI相关的回调函数"""
+    
+    def safe_callback_wrapper(func):
+        """包装回调函数，提供全局错误处理和防止ID not found错误"""
+        def wrapper(*args, **kwargs):
+            try:
+                # 检查所有输入是否为空或无效
+                if not ctx.triggered or all(arg is None or (isinstance(arg, (list, dict)) and not arg) for arg in args):
+                    # 如果没有触发器或所有输入都是空的，返回no_update
+                    output_count = func.__code__.co_argcount
+                    if hasattr(func, "__closure__") and func.__closure__:
+                        # 如果是装饰器函数，尝试获取原始函数的参数数量
+                        for cell in func.__closure__:
+                            if isinstance(cell.cell_contents, types.FunctionType):
+                                output_count = cell.cell_contents.__code__.co_argcount
+                                break
+                    return tuple(dash.no_update for _ in range(max(output_count, 1)))
+                
+                # 正常执行函数
+                return func(*args, **kwargs)
+            except dash.exceptions.PreventUpdate:
+                # 让PreventUpdate正常抛出
+                raise
+            except Exception as e:
+                # 捕获并记录所有其他异常
+                print(f"回调错误: {str(e)}")
+                print(traceback.format_exc())
+                
+                # 确定输出数量
+                output_count = 1
+                try:
+                    # 尝试从回调装饰器中推断输出数量
+                    decorator_list = [d for d in func.__code__.co_consts if isinstance(d, str) and "@app.callback" in d]
+                    if decorator_list:
+                        outputs = re.findall(r'Output\([^)]+\)', decorator_list[0])
+                        output_count = len(outputs) if outputs else 1
+                except:
+                    # 如果无法确定，使用一个安全的默认值
+                    output_count = 3  # 大多数回调函数都有至少这么多输出
+                
+                # 返回适当的错误信息或no_update
+                return tuple(dash.no_update for _ in range(output_count))
+        return wrapper
+
+    # 获取并显示股票文件列表
+    @app.callback(
+        Output("available-stock-files", "children"),
+        Input("tabs", "active_tab")
+    )
+    def update_stock_files_list(active_tab):
+        if active_tab != "tab-deepseek":
+            return dash.no_update
+        
+        stock_files = get_available_stock_files()
+        if not stock_files:
+            return html.Div("暂无股票数据文件", className="text-center text-muted py-2")
+        
+        file_items = []
+        for file in stock_files:
+            file_items.append(
+                html.Div([
+                    html.Div([
+                        html.Span(f"股票代码: {file['stock_code']}", className="fw-bold"),
+                        html.Span(f" | {file['date_range']}", className="text-muted small")
+                    ]),
+                    html.Div(f"文件: {file['name']}", className="small text-truncate"),
+                ], className="mb-2 border-bottom pb-2")
+            )
+        
+        return html.Div(file_items)
+    
+    # 显示当前分析的股票信息
+    @app.callback(
+        Output("current-stock-info", "children"),
+        Input("stock-data-store", "data")
+    )
+    def update_current_stock_info(stock_data):
+        if not stock_data:
+            return "未选择股票数据"
+        
+        try:
+            return [
+                html.Div(f"股票代码: {stock_data.get('stock_code', '未知')}"),
+                html.Div(f"股票名称: {stock_data.get('stock_name', '未知')}"),
+                html.Div(f"分析时间范围: {stock_data.get('period', '全部可用数据')}")
+            ]
+        except Exception as e:
+            print(f"更新股票信息时出错: {e}")
+            return "无法显示股票信息"
+    
+    # 上传当前股票数据文件到对话
+    @app.callback(
+        [Output("uploaded-files-store", "data", allow_duplicate=True),
+         Output("uploaded-files-list", "children", allow_duplicate=True),
+         Output("chat-status-alert", "is_open", allow_duplicate=True),
+         Output("chat-status-alert", "children", allow_duplicate=True),
+         Output("chat-status-alert", "color", allow_duplicate=True)],
+        Input("upload-stock-data-btn", "n_clicks"),
+        State("uploaded-files-store", "data"),
+        prevent_initial_call=True
+    )
+    @safe_callback_wrapper
+    def upload_current_stock_data(n_clicks, current_files):
+        stock_files = get_available_stock_files()
+        if not stock_files:
+            return current_files, dash.no_update, True, "没有可用的股票数据文件", "warning"
+        
+        # 默认只使用第一个文件
+        latest_file = stock_files[0]
+        
+        # 上传到chattemp目录
+        try:
+            chat_file_path = os.path.join("chattemp", latest_file["name"])
+            with open(latest_file["path"], "r", encoding="utf-8") as src_file:
+                content = src_file.read()
+                with open(chat_file_path, "w", encoding="utf-8") as dst_file:
+                    dst_file.write(content)
+            
+            # 添加到已上传文件列表
+            new_file = {
+                "path": chat_file_path,
+                "type": "csv",
+                "name": latest_file["name"],
+                "stock_code": latest_file["stock_code"],
+                "date_range": latest_file["date_range"]
+            }
+            
+            # 检查是否已经存在该文件
+            if current_files:
+                for i, file in enumerate(current_files):
+                    if file["name"] == new_file["name"]:
+                        # 如果存在则替换
+                        current_files[i] = new_file
+                        break
+                else:
+                    # 如果不存在则添加
+                    current_files.append(new_file)
+            else:
+                current_files = [new_file]
+            
+            # 更新文件列表UI
+            file_items = []
+            for file in current_files:
+                file_items.append(
+                    dbc.ListGroupItem(
+                        [
+                            html.Div(
+                                [
+                                    html.Span(file["name"], className="fw-bold"),
+                                    dbc.Button(
+                                        html.I(className="fas fa-times"),
+                                        id={"type": "remove-file", "index": file["name"]},
+                                        color="link",
+                                        size="sm",
+                                        className="p-0 ms-2"
+                                    ),
+                                ],
+                                className="d-flex justify-content-between align-items-center"
+                            ),
+                        ],
+                        className="py-2 small"
+                    )
+                )
+            
+            if not file_items:
+                file_items = [dbc.ListGroupItem("暂无上传文件", className="text-center text-muted py-2 small")]
+            
+            return current_files, dbc.ListGroup(file_items), True, f"已成功上传股票数据: {latest_file['stock_code']}({latest_file['date_range']})", "success"
+            
+        except Exception as e:
+            print(f"上传股票数据文件时出错: {e}")
+            return current_files, dash.no_update, True, f"上传文件失败: {str(e)}", "danger"
+    
+    # 快捷问题按钮回调
+    @app.callback(
+        Output("chat-input", "value", allow_duplicate=True),
+        [Input("quick-q1", "n_clicks"),
+         Input("quick-q2", "n_clicks"),
+         Input("quick-q3", "n_clicks"),
+         Input("quick-q4", "n_clicks"),
+         Input("quick-q5", "n_clicks")],
+        prevent_initial_call=True
+    )
+    def set_quick_question(q1, q2, q3, q4, q5):
+        if not ctx.triggered:
+            return dash.no_update
+        
+        trigger_id = ctx.triggered[0]["prop_id"].split(".")[0]
+        
+        questions = {
+            "quick-q1": "请分析这支股票的价格走势和交易特点",
+            "quick-q2": "根据上传的数据，计算这支股票的最佳网格交易区间和网格数量",
+            "quick-q3": "分析这支股票是否适合进行网格交易，给出详细理由",
+            "quick-q4": "请分析解读数据中的中间价、相对振幅等指标的含义和投资价值",
+            "quick-q5": "根据振幅和中间价趋势，判断这支股票的市场状况和未来走势"
+        }
+        
+        return questions.get(trigger_id, "")
+    
+    def safe_callback_wrapper(func):
+        """包装回调函数，提供全局错误处理和防止ID not found错误"""
+        def wrapper(*args, **kwargs):
+            try:
+                # 检查所有输入是否为空或无效
+                if not ctx.triggered or all(arg is None or (isinstance(arg, (list, dict)) and not arg) for arg in args):
+                    # 如果没有触发器或所有输入都是空的，返回no_update
+                    output_count = func.__code__.co_argcount
+                    if hasattr(func, "__closure__") and func.__closure__:
+                        # 如果是装饰器函数，尝试获取原始函数的参数数量
+                        for cell in func.__closure__:
+                            if isinstance(cell.cell_contents, types.FunctionType):
+                                output_count = cell.cell_contents.__code__.co_argcount
+                                break
+                    return tuple(dash.no_update for _ in range(max(output_count, 1)))
+                
+                # 正常执行函数
+                return func(*args, **kwargs)
+            except dash.exceptions.PreventUpdate:
+                # 让PreventUpdate正常抛出
+                raise
+            except Exception as e:
+                # 捕获并记录所有其他异常
+                print(f"回调错误: {str(e)}")
+                print(traceback.format_exc())
+                
+                # 确定输出数量
+                output_count = 1
+                try:
+                    # 尝试从回调装饰器中推断输出数量
+                    decorator_list = [d for d in func.__code__.co_consts if isinstance(d, str) and "@app.callback" in d]
+                    if decorator_list:
+                        outputs = re.findall(r'Output\([^)]+\)', decorator_list[0])
+                        output_count = len(outputs) if outputs else 1
+                except:
+                    # 如果无法确定，使用一个安全的默认值
+                    output_count = 3  # 大多数回调函数都有至少这么多输出
+                
+                # 返回适当的错误信息或no_update
+                return tuple(dash.no_update for _ in range(output_count))
+        return wrapper
+    
+    # 保存API密钥回调
+    @app.callback(
+        [Output("chat-status-alert", "is_open"),
+         Output("chat-status-alert", "children"),
+         Output("chat-status-alert", "color")],
+        Input("save-api-key-btn", "n_clicks"),
+        State("api-key-input", "value"),
+        prevent_initial_call=True
+    )
+    def save_api_key(n_clicks, api_key):
+        if not api_key:
+            return True, "API密钥不能为空", "warning"
+        
+        success = deepseek_api.save_api_key(api_key)
+        if success:
+            return True, "API密钥保存成功", "success"
+        else:
+            return True, "API密钥保存失败", "danger"
+    
+    # 上传文件回调
+    @app.callback(
+        [Output("uploaded-files-list", "children"),
+         Output("uploaded-files-store", "data")],
+        Input("upload-data", "contents"),
+        [State("upload-data", "filename"),
+         State("uploaded-files-store", "data")],
+        prevent_initial_call=True
+    )
+    @safe_callback_wrapper
+    def update_uploaded_files(contents, filenames, current_files):
+        if not contents:
+            return dash.no_update, dash.no_update
+        
+        # 解析新上传的文件
+        new_files = []
+        for content, filename in zip(contents, filenames):
+            file_info = parse_contents(content, filename)
+            if file_info:
+                new_files.append(file_info)
+        
+        # 更新文件列表
+        updated_files = current_files + new_files
+        
+        # 创建文件列表UI
+        file_items = []
+        for i, file in enumerate(updated_files):
+            file_items.append(
+                dbc.ListGroupItem(
+                    [
+                        html.Div(
+                            [
+                                html.I(className="fas fa-file me-2"),
+                                html.Span(file["name"], className="text-truncate", style={"maxWidth": "150px"}),
+                                html.Small(f"{file['size'] // 1024} KB", className="text-muted ms-2"),
+                            ],
+                            className="d-flex align-items-center"
+                        ),
+                        html.Div(
+                            dbc.Button(
+                                "删除",
+                                id={"type": "remove-file", "index": i},
+                                color="danger",
+                                size="sm",
+                                className="py-0 px-2"
+                            ),
+                            className="ms-auto"
+                        )
+                    ],
+                    className="d-flex justify-content-between align-items-center py-1 px-2"
+                )
+            )
+        
+        if not file_items:
+            file_items = [dbc.ListGroupItem("暂无上传文件", className="text-center text-muted py-2")]
+        
+        return dbc.ListGroup(file_items, className="small"), updated_files
+    
+    # 删除上传文件回调
+    @app.callback(
+        [Output("uploaded-files-list", "children", allow_duplicate=True),
+         Output("uploaded-files-store", "data", allow_duplicate=True)],
+        Input({"type": "remove-file", "index": ALL}, "n_clicks"),
+        State("uploaded-files-store", "data"),
+        prevent_initial_call=True
+    )
+    def remove_file(n_clicks, files):
+        # 获取触发回调的按钮索引
+        if not ctx.triggered:
+            return dash.no_update, dash.no_update
+        
+        button_id = ctx.triggered[0]["prop_id"].split(".")[0]
+        file_index = json.loads(button_id)["index"]
+        
+        # 删除文件
+        if 0 <= file_index < len(files):
+            # 尝试从磁盘删除文件
+            try:
+                os.remove(files[file_index]["path"])
+            except:
+                pass
+            
+            # 从列表中删除
+            files.pop(file_index)
+        
+        # 更新文件列表UI
+        file_items = []
+        for i, file in enumerate(files):
+            file_items.append(
+                dbc.ListGroupItem(
+                    [
+                        html.Div(
+                            [
+                                html.I(className="fas fa-file me-2"),
+                                html.Span(file["name"], className="text-truncate", style={"maxWidth": "150px"}),
+                                html.Small(f"{file['size'] // 1024} KB", className="text-muted ms-2"),
+                            ],
+                            className="d-flex align-items-center"
+                        ),
+                        html.Div(
+                            dbc.Button(
+                                "删除",
+                                id={"type": "remove-file", "index": i},
+                                color="danger",
+                                size="sm",
+                                className="py-0 px-2"
+                            ),
+                            className="ms-auto"
+                        )
+                    ],
+                    className="d-flex justify-content-between align-items-center py-1 px-2"
+                )
+            )
+        
+        if not file_items:
+            file_items = [dbc.ListGroupItem("暂无上传文件", className="text-center text-muted py-2")]
+        
+        return dbc.ListGroup(file_items, className="small"), files
+    
+    # 新建会话回调
+    @app.callback(
+        [Output("chat-session-store", "data", allow_duplicate=True),
+         Output("chat-messages-container", "children", allow_duplicate=True)],
+        Input("new-chat-btn", "n_clicks"),
+        prevent_initial_call=True
+    )
+    @safe_callback_wrapper
+    def create_new_session(n_clicks):
+        # 创建新会话
+        session_id = str(uuid.uuid4())
+        return {"session_id": session_id, "messages": []}, []
+    
+    # 加载会话回调
+    @app.callback(
+        [Output("chat-session-store", "data", allow_duplicate=True),
+         Output("chat-messages-container", "children", allow_duplicate=True)],
+        Input({"type": "load-session", "index": ALL}, "n_clicks"),
+        prevent_initial_call=True
+    )
+    @safe_callback_wrapper
+    def load_session(n_clicks):
+        if not ctx.triggered:
+            return dash.no_update, dash.no_update
+        
+        button_id = ctx.triggered[0]["prop_id"].split(".")[0]
+        session_id = json.loads(button_id)["index"]
+        
+        # 加载会话历史
+        messages = deepseek_api.load_chat_history(session_id)
+        
+        # 创建消息UI
+        message_elements = []
+        for msg in messages:
+            if msg["role"] == "user":
+                message_elements.append(
+                    html.Div(
+                        [
+                            html.Div(
+                                msg["content"],
+                                className="p-3 mb-2 bg-light rounded-3"
+                            )
+                        ],
+                        className="d-flex justify-content-end mb-3"
+                    )
+                )
+            else:
+                message_elements.append(
+                    html.Div(
+                        [
+                            html.Div(
+                                msg["content"],
+                                className="p-3 mb-2 bg-primary text-white rounded-3"
+                            )
+                        ],
+                        className="d-flex justify-content-start mb-3"
+                    )
+                )
+        
+        return {"session_id": session_id, "messages": messages}, message_elements
+    
+    # 删除会话回调
+    @app.callback(
+        Output("session-list", "children"),
+        Input({"type": "delete-session", "index": ALL}, "n_clicks"),
+        prevent_initial_call=True
+    )
+    def delete_session(n_clicks):
+        if not ctx.triggered:
+            return dash.no_update
+        
+        button_id = ctx.triggered[0]["prop_id"].split(".")[0]
+        session_id = json.loads(button_id)["index"]
+        
+        # 删除会话
+        deepseek_api.delete_chat_session(session_id)
+        
+        # 重新获取会话列表
+        sessions = deepseek_api.get_all_chat_sessions()
+        
+        # 生成会话列表项
+        session_items = []
+        for session in sessions:
+            session_items.append(
+                dbc.ListGroupItem(
+                    [
+                        html.Div(
+                            [
+                                html.Span(session["title"], className="fw-bold"),
+                                html.Small(session["time"], className="text-muted ms-2"),
+                            ],
+                            className="d-flex justify-content-between align-items-center"
+                        ),
+                        html.Div(
+                            [
+                                dbc.Button(
+                                    "加载", 
+                                    id={"type": "load-session", "index": session["id"]},
+                                    color="light", 
+                                    size="sm", 
+                                    className="me-1"
+                                ),
+                                dbc.Button(
+                                    "删除", 
+                                    id={"type": "delete-session", "index": session["id"]},
+                                    color="danger", 
+                                    size="sm"
+                                ),
+                            ],
+                            className="mt-1"
+                        )
+                    ],
+                    className="py-2"
+                )
+            )
+        
+        # 如果没有会话，显示提示信息
+        if not session_items:
+            session_items = [dbc.ListGroupItem("暂无历史会话", className="text-center text-muted py-3")]
+        
+        return session_items
+    
+    # 发送消息回调
+    @app.callback(
+        [Output("chat-messages-container", "children", allow_duplicate=True),
+         Output("chat-input", "value"),
+         Output("chat-session-store", "data", allow_duplicate=True)],
+        Input("send-message-btn", "n_clicks"),
+        [State("chat-input", "value"),
+         State("chat-session-store", "data"),
+         State("model-dropdown", "value"),
+         State("uploaded-files-store", "data"),
+         State("chat-messages-container", "children")],
+        prevent_initial_call=True
+    )
+    @safe_callback_wrapper
+    def send_message(n_clicks, message, session_data, model, uploaded_files, current_messages):
+        if not message or not message.strip():
+            return dash.no_update, dash.no_update, dash.no_update
+        
+        if not deepseek_api.api_key:
+            return current_messages + [
+                html.Div(
+                    [
+                        html.Div(
+                            "请先设置API密钥",
+                            className="p-3 mb-2 bg-danger text-white rounded-3"
+                        )
+                    ],
+                    className="d-flex justify-content-start mb-3"
+                )
+            ], "", session_data
+        
+        # 添加用户消息到UI
+        updated_messages = current_messages + [
+            html.Div(
+                [
+                    html.Div(
+                        message,
+                        className="p-3 mb-2 bg-light rounded-3"
+                    )
+                ],
+                className="d-flex justify-content-end mb-3"
+            )
+        ]
+        
+        # 添加用户消息到会话历史
+        messages = session_data.get("messages", [])
+        messages.append({"role": "user", "content": message})
+        
+        # 准备文件路径列表
+        file_paths = [file["path"] for file in uploaded_files] if uploaded_files else []
+        
+        # 调用API
+        try:
+            if file_paths:
+                # 使用文件上传API
+                response = deepseek_api.chat_with_file(messages, file_paths, model=model)
+            else:
+                # 使用普通对话API
+                response = deepseek_api.chat(messages, model=model)
+            
+            # 处理响应
+            if "error" in response:
+                ai_message = f"错误: {response['error']}"
+            else:
+                ai_message = response.get("choices", [{}])[0].get("message", {}).get("content", "无响应")
+            
+            # 添加AI回复到会话历史
+            messages.append({"role": "assistant", "content": ai_message})
+            
+            # 保存会话历史
+            deepseek_api.save_chat_history(session_data["session_id"], messages)
+            
+            # 添加AI回复到UI
+            updated_messages.append(
+                html.Div(
+                    [
+                        html.Div(
+                            ai_message,
+                            className="p-3 mb-2 bg-primary text-white rounded-3"
+                        )
+                    ],
+                    className="d-flex justify-content-start mb-3"
+                )
+            )
+            
+            return updated_messages, "", {"session_id": session_data["session_id"], "messages": messages}
+            
+        except Exception as e:
+            # 处理异常
+            error_message = f"发送消息时出错: {str(e)}"
+            
+            updated_messages.append(
+                html.Div(
+                    [
+                        html.Div(
+                            error_message,
+                            className="p-3 mb-2 bg-danger text-white rounded-3"
+                        )
+                    ],
+                    className="d-flex justify-content-start mb-3"
+                )
+            )
+            
+            return updated_messages, "", session_data
+    
+    # 更新当前模型显示
+    @app.callback(
+        Output("current-model-display", "children"),
+        Input("model-dropdown", "value")
+    )
+    def update_model_display(model):
+        model_names = {
+            "deepseek-reasoner": "DeepSeek-R1 (推理增强)",
+            "deepseek-chat": "DeepSeek Chat (通用对话)",
+            "deepseek-coder": "DeepSeek Coder (代码专家)"
+        }
+        return model_names.get(model, model)

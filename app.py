@@ -1,17 +1,20 @@
 """网格交易大师 (Grid Trading Master) - 主应用"""
 import pandas as pd
 import dash
-from dash import dcc, html, Input, Output, State, callback
+from dash import dcc, html, Input, Output, State, callback, no_update
+from dash.exceptions import PreventUpdate
 import dash_bootstrap_components as dbc
 from datetime import datetime, timedelta
 import plotly.graph_objects as go
 import os
+import json
 
 from data_fetcher import DataFetcher
 from data_processor import DataProcessor
 from visualizer import Visualizer
 from strategy import TradingStrategy
 import utils
+import deepseek_ui
 
 # 初始化组件
 data_fetcher = DataFetcher(data_source="eastmoney")
@@ -22,20 +25,39 @@ strategy = TradingStrategy()
 # 创建Dash应用
 app = dash.Dash(
     __name__,
-    external_stylesheets=[dbc.themes.BOOTSTRAP],
+    external_stylesheets=[dbc.themes.BOOTSTRAP, "https://use.fontawesome.com/releases/v5.15.4/css/all.css"],
     meta_tags=[{"name": "viewport", "content": "width=device-width, initial-scale=1"}],
-    title="网格交易大师V2"
+    title="网格交易大师V3",
+    suppress_callback_exceptions=True  # 添加这个参数来抑制回调异常
+)
+
+# 创建标签页
+tabs = dbc.Tabs(
+    [
+        dbc.Tab(label="行情分析", tab_id="tab-market", 
+                labelClassName="fw-bold", activeLabelClassName="text-primary"),
+        dbc.Tab(label="DeepSeek对话", tab_id="tab-deepseek", 
+                labelClassName="fw-bold", activeLabelClassName="text-primary"),
+    ],
+    id="tabs",
+    active_tab="tab-market",
+    className="mb-3"
 )
 
 # 定义布局
 app.layout = html.Div([
+    # 全局错误通知
+    dbc.Alert(id="error-notification", is_open=False, dismissable=True, duration=4000),
+    # 隐藏的触发器组件
+    html.Div(id="_dummy-input", style={"display": "none"}),
+    
     # 导航栏
     dbc.Navbar(
         dbc.Container([
             html.A(
                 dbc.Row([
                     dbc.Col(html.Img(src="assets/logo.png", height="28px"), width="auto"),
-                    dbc.Col(dbc.NavbarBrand("网格交易大师V2", className="ms-2 fw-normal", style={"color": "#4D4B63"})),
+                    dbc.Col(dbc.NavbarBrand("网格交易大师V3", className="ms-2 fw-normal", style={"color": "#4D4B63"})),
                 ], align="center", className="g-0"),
                 href="/",
                 style={"textDecoration": "none"},
@@ -50,6 +72,62 @@ app.layout = html.Div([
     
     # 主体内容
     dbc.Container([
+        # 标签页
+        tabs,
+        
+        # 标签页内容
+        html.Div(id="tab-content"),
+        
+        # 存储组件 - 添加所有需要的存储组件
+        dcc.Store(id="stock-data-store"),
+        dcc.Store(id="chat-session-store", data={"session_id": "", "messages": []}),
+        dcc.Store(id="uploaded-files-store", data=[]),
+        dcc.Store(id="selected-file-store", data={}),
+        dcc.Store(id="chart-data-store", data={}),
+        # 新增消息处理存储组件
+        dcc.Store(id="message-processing-store", storage_type="memory"),
+        dcc.Store(id="request-state-store", storage_type="memory", data=False),
+        
+        # 页脚
+        html.Footer([
+            html.Hr(style={"margin": "10px 0", "border-top": "1px solid #f0f0f0"}),
+            html.P(
+                "网格交易大师 V3.0 © 2025",
+                className="text-center text-muted small",
+                style={"margin-bottom": "8px"}
+            ),
+        ]),
+    ], fluid=True, className="px-4 pb-2"),  # 减少容器内边距
+], style={"background-color": "#fafafa"})  # 整体背景色
+
+# 创建资产目录
+if not os.path.exists("assets"):
+    os.makedirs("assets")
+
+# 创建临时目录
+if not os.path.exists("temp"):
+    os.makedirs("temp")
+
+# 创建聊天历史目录
+if not os.path.exists("chattemp"):
+    os.makedirs("chattemp")
+
+# 标签页切换回调
+@app.callback(
+    Output("tab-content", "children"),
+    Input("tabs", "active_tab")
+)
+def render_tab_content(active_tab):
+    """根据选中的标签页渲染内容"""
+    if active_tab == "tab-market":
+        return get_market_layout()
+    elif active_tab == "tab-deepseek":
+        return deepseek_ui.get_deepseek_layout()
+    return html.P("未知标签页")
+
+def get_market_layout():
+    """获取行情分析标签页的布局"""
+    return html.Div([
         dbc.Row([
             # 左侧控制面板
             dbc.Col([
@@ -172,25 +250,7 @@ app.layout = html.Div([
                 ),
             ], width=9, className="ps-3"),  # 右侧列去除左边距
         ]),
-        
-        # 存储组件
-        dcc.Store(id="stock-data-store"),
-        
-        # 页脚
-        html.Footer([
-            html.Hr(style={"margin": "10px 0", "border-top": "1px solid #f0f0f0"}),
-            html.P(
-                "网格交易大师 v2.0 © 2025",
-                className="text-center text-muted small",
-                style={"margin-bottom": "8px"}
-            ),
-        ]),
-    ], fluid=True, className="px-4 pb-2"),  # 减少容器内边距
-], style={"background-color": "#fafafa"})  # 整体背景色
-
-# 创建资产目录
-if not os.path.exists("assets"):
-    os.makedirs("assets")
+    ])
 
 # 回调函数：搜索股票
 @app.callback(
@@ -391,280 +451,142 @@ def update_chart(query_clicks, zoom_in_clicks, zoom_out_clicks, reset_clicks, kl
         
         # 从存储的状态中获取当前缩放状态，如果有的话
         if 'y_scale_factor' in stored_data:
-            y_scale_factor = stored_data.get('y_scale_factor', 1.0)
+            y_scale_factor = stored_data['y_scale_factor']
         
-        # 获取K线图和振幅图的当前数据范围
-        price_min = df['low'].min() * 0.98
-        price_max = df['high'].max() * 1.02
-        amp_min = 0  # 振幅最小值通常是0
-        amp_max = df['amplitude'].max() * 1.2  # 问留一些余量
-        
-        debug_msg = ""
-        
+        # 处理缩放操作
         if triggered_id == "zoom-in-btn":
-            # 放大Y轴 - 缩小显示范围
-            y_scale_factor *= (1 + zoom_factor)  # 增加缩放因子，使图表垂直方向放大
-            
-            # 计算新的Y轴范围
-            price_range = price_max - price_min
-            price_mid = (price_max + price_min) / 2
-            new_price_range = price_range / y_scale_factor
-            
-            amp_range = amp_max - amp_min
-            amp_mid = (amp_max + amp_min) / 2
-            new_amp_range = amp_range / y_scale_factor
-            
-            # 更新图表垂直方向范围
-            fig.update_layout(
-                yaxis=dict(
-                    range=[price_mid - new_price_range/2, price_mid + new_price_range/2]
-                ),
-                yaxis2=dict(
-                    range=[amp_mid - new_amp_range/2, amp_mid + new_amp_range/2]
-                )
-            )
-            
-            debug_msg = f"放大Y轴: 缩放因子 = {y_scale_factor:.2f}\n"
-            debug_msg += f"K线图范围: {price_mid - new_price_range/2:.2f} ~ {price_mid + new_price_range/2:.2f}\n"
-            debug_msg += f"振幅图范围: {amp_mid - new_amp_range/2:.2f} ~ {amp_mid + new_amp_range/2:.2f}"
-            
-            # 更新调试信息
-            debug_info.children[0].children = debug_msg
-            
+            # 放大 - 减小Y轴范围
+            y_scale_factor *= (1 - zoom_factor)
         elif triggered_id == "zoom-out-btn":
-            # 缩小 Y 轴 - 扩大显示范围
-            y_scale_factor /= (1 + zoom_factor)  # 减小缩放因子，使图表垂直方向缩小
-            
-            # 防止过度缩小
-            if y_scale_factor < 0.3:
-                y_scale_factor = 0.3
-            
-            # 计算新的Y轴范围
-            price_range = price_max - price_min
-            price_mid = (price_max + price_min) / 2
-            new_price_range = price_range / y_scale_factor
-            
-            amp_range = amp_max - amp_min
-            amp_mid = (amp_max + amp_min) / 2
-            new_amp_range = amp_range / y_scale_factor
-            
-            # 更新图表垂直方向范围
-            fig.update_layout(
-                yaxis=dict(
-                    range=[price_mid - new_price_range/2, price_mid + new_price_range/2]
-                ),
-                yaxis2=dict(
-                    range=[amp_mid - new_amp_range/2, amp_mid + new_amp_range/2]
-                )
-            )
-            
-            debug_msg = f"缩小 Y 轴: 缩放因子 = {y_scale_factor:.2f}\n"
-            debug_msg += f"K线图范围: {price_mid - new_price_range/2:.2f} ~ {price_mid + new_price_range/2:.2f}\n"
-            debug_msg += f"振幅图范围: {amp_mid - new_amp_range/2:.2f} ~ {amp_mid + new_amp_range/2:.2f}"
-            
-            # 更新调试信息
-            debug_info.children[0].children = debug_msg
-        
-        # 如果是重置按钮，重置所有缩放设置
+            # 缩小 - 增加Y轴范围
+            y_scale_factor *= (1 + zoom_factor)
         elif triggered_id == "reset-zoom-btn":
-            # 重置缩放因子
+            # 重置缩放
             y_scale_factor = 1.0
-            
-            # 重置图表到原始状态，但保持K线图显示状态
-            chart = visualizer.create_stock_chart(
-                df, 
-                f"{stock_name} ({stock_code}) 中间价与振幅分析",
-                show_kline=kline_toggle
-            )
-            fig = chart.figure
-            
-            debug_msg = f"重置缩放 - 恢复原始状态\n"
-            if kline_toggle:
-                debug_msg += f"K线图显示已开启"
-            else:
-                debug_msg += f"K线图显示已关闭"
-            
-            # 更新调试信息
-            debug_info.children[0].children = debug_msg
-            
-        # 如果是K线图切换开关
-        elif triggered_id == "kline-toggle":
-            import traceback
-            import io
-            try:
-                # 打印当前数据和状态信息，帮助调试
-                print(f"\n\n[DEBUG] K线图切换: {kline_toggle}")
-                print(f"[DEBUG] 数据列: {df.columns.tolist()}")
-                print(f"[DEBUG] 数据行数: {len(df)}")
-                
-                # 重新创建图表，并传递新的K线图显示状态
-                chart = visualizer.create_stock_chart(
-                    df, 
-                    f"{stock_name} ({stock_code}) 中间价与振幅分析",
-                    show_kline=kline_toggle
-                )
-                fig = chart.figure
-                
-                # 保持当前的缩放状态
-                # 获取K线图和振幅图的当前数据范围
-                price_min = df['low'].min() * 0.98
-                price_max = df['high'].max() * 1.02
-                amp_min = 0  # 振幅最小值通常是0
-                amp_max = df['amplitude'].max() * 1.2
-                
-                # 计算当前缩放的Y轴范围
-                price_range = price_max - price_min
-                price_mid = (price_max + price_min) / 2
-                new_price_range = price_range / y_scale_factor
-                
-                amp_range = amp_max - amp_min
-                amp_mid = (amp_max + amp_min) / 2
-                new_amp_range = amp_range / y_scale_factor
-                
-                # 应用当前的缩放状态
-                fig.update_layout(
-                    yaxis=dict(
-                        range=[price_mid - new_price_range/2, price_mid + new_price_range/2]
-                    ),
-                    yaxis2=dict(
-                        range=[amp_mid - new_amp_range/2, amp_mid + new_amp_range/2]
-                    )
-                )
-                
-                debug_msg = f"K线图显示已{'开启' if kline_toggle else '关闭'}\n"
-                debug_msg += f"当前缩放因子 = {y_scale_factor:.2f}"
-                
-                # 更新调试信息
-                debug_info.children[0].children = debug_msg
-            except Exception as e:
-                # 获取完整的错误信息
-                error_buffer = io.StringIO()
-                traceback.print_exc(file=error_buffer)
-                full_error = error_buffer.getvalue()
-                print(f"\n\n[ERROR] K线图切换时错误:\n{full_error}")
-                
-                # 在UI上显示错误
-                debug_msg = f"\n*** 错误信息 ***\n"
-                debug_msg += f"类型: {type(e).__name__}\n"
-                debug_msg += f"内容: {str(e)}\n"
-                debug_msg += f"请查看控制台以获取完整错误信息"
-                
-                # 更新调试信息
-                debug_info.children[0].children = debug_msg
-                
-                # 创建一个空图表以避免崩溃
-                if 'fig' not in locals():
-                    fig = go.Figure()
-                    fig.add_annotation(text="出错了，请查看上方的调试信息",
-                                    xref="paper", yref="paper",
-                                    x=0.5, y=0.5, showarrow=False,
-                                    font=dict(color="red", size=20))
         
-        # 更新存储数据中的缩放因子
-        if isinstance(stored_data, dict):
-            stored_data['y_scale_factor'] = y_scale_factor
+        # 应用缩放
+        if y_scale_factor != 1.0:
+            # 获取当前Y轴范围
+            y_range = fig.layout.yaxis.range
+            if y_range:
+                # 计算中点
+                mid_point = (y_range[0] + y_range[1]) / 2
+                # 计算新范围
+                half_range = (y_range[1] - y_range[0]) / 2 * y_scale_factor
+                # 设置新范围
+                fig.update_layout(yaxis=dict(range=[mid_point - half_range, mid_point + half_range]))
         
-        # 创建最终图表，包含调试信息
-        final_chart = html.Div([
-            debug_info,  # 添加调试信息区
-            dcc.Graph(
-                figure=fig,
-                id="stock-chart",
-                config={
-                    'displayModeBar': False,
-                    'displaylogo': False,
-                    'responsive': True,
-                }
-            )
-        ])
+        # 更新调试信息
+        debug_info.children[0].children = f"当前缩放状态: 比例因子 = {y_scale_factor:.2f}"
         
-        # 更新存储数据和图表，其他保持不变
-        return stored_data, dash.no_update, dash.no_update, final_chart, dash.no_update
+        # 更新存储数据中的缩放状态
+        stored_data['y_scale_factor'] = y_scale_factor
+        
+        # 返回更新后的图表和保持其他输出不变
+        return stored_data, dash.no_update, dash.no_update, dcc.Graph(figure=fig), dash.no_update
     
     # 查询功能 - 如果是查询按钮
     elif triggered_id == "query-btn":
+        # 验证输入
         if not stock_code:
-            return dash.no_update, dash.no_update, dash.no_update, dash.no_update, dash.no_update
+            return dash.no_update, dash.no_update, dash.no_update, dash.no_update, dbc.Alert("请输入股票代码或名称", color="warning", dismissable=True)
+        
+        # 解析股票输入
+        input_type, value = utils.parse_stock_input(stock_code)
         
         # 解析日期范围
-        dates = date_range.split('至')
-        start_date = dates[0]
-        end_date = dates[1] if len(dates) > 1 else datetime.now().strftime('%Y-%m-%d')
+        start_date, end_date = utils.parse_date_range(date_range)
         
         try:
-            # 创建数据获取器 - 只使用东方财富数据源
-            data_fetcher = DataFetcher(data_source="eastmoney")
-            
             # 获取股票数据
-            df = data_fetcher.get_stock_data(stock_code, start_date, end_date)
-            
-            # 打印调试信息，查看数据结构
-            print("\n\n数据列名:", df.columns.tolist())
-            if not df.empty and 'open' in df.columns:
-                print("开盘价样本:", df['open'].head(3).tolist())
-            else:
-                print("数据中没有open列")
+            df, stock_info = data_fetcher.get_stock_data(value, start_date, end_date, data_source)
             
             if df.empty:
-                alert = dbc.Alert("未查询到股票数据，请检查股票代码或日期范围", color="warning")
-                return None, None, None, None, alert
+                return dash.no_update, dash.no_update, dash.no_update, dash.no_update, dbc.Alert("未找到股票数据", color="warning", dismissable=True)
             
-            # 确保日期是日期时间格式以便排序
-            df['date'] = pd.to_datetime(df['date'])
-            df = df.sort_values('date')
+            # 处理数据
+            df = data_processor.process_stock_data(df)
             
-            # 添加中间价和振幅指标
-            df['mid_price'] = (df['high'] + df['low']) / 2
-            df['amplitude'] = round((df['high'] - df['low']) / df['close'].shift(1) * 100, 2)
+            # 保存数据到临时文件 - 使用原始文件名
+            original_temp_file = os.path.join("temp", f"{stock_code}_{start_date}_{end_date}.csv")
+            df.to_csv(original_temp_file, index=False)
             
-            # 获取股票名称
-            try:
-                stock_name = utils.get_stock_name(stock_code)
-            except:
-                stock_name = stock_code
+            # 同时保存一份作为当前股票数据的文件，固定名称
+            current_file = os.path.join("temp", "current_stock_data.csv")
+            df.to_csv(current_file, index=False)
             
-            # 创建可视化对象，K线图初始不显示
+            # 同时保存股票信息到JSON文件中，便于显示
+            stock_info_file = os.path.join("temp", "current_stock_info.json")
+            with open(stock_info_file, "w", encoding="utf-8") as f:
+                json.dump({
+                    "code": stock_info["code"],
+                    "name": stock_info["name"],
+                    "period": f"{start_date} 至 {end_date}",
+                    "data_source": data_source
+                }, f, ensure_ascii=False)
+            
+            # 创建图表
             chart = visualizer.create_stock_chart(
                 df, 
-                f"{stock_name} ({stock_code}) 中间价与振幅分析",
+                f"{stock_info['name']} ({stock_info['code']}) 中间价与振幅分析",
                 show_kline=kline_toggle
             )
-            data_table = visualizer.create_stock_table(df)
+            
+            # 创建数据表格
+            table = visualizer.create_stock_table(df)
             
             # 创建摘要卡片
-            summary = create_summary_cards(df)
+            summary = visualizer.create_summary_cards(df)
             
-            # 检测异常振幅
-            df = data_processor.detect_abnormal_amplitude(df)
+            # 生成交易预警
+            alerts = []
+            warning_items = strategy.generate_alerts(df)
+            if warning_items:
+                for item in warning_items:
+                    # generate_alerts返回的是字典，包含message和level字段
+                    message = item['message']
+                    level = item.get('level', 'warning')
+                    alerts.append(
+                        dbc.Alert(
+                            message,
+                            color="info" if level == "info" else "warning",
+                            dismissable=True,
+                            className="mb-2 py-2 small"
+                        )
+                    )
             
-            # 存储数据，包含初始缩放状态
-            store_data = {
+            # 存储数据
+            stored_data = {
                 'data': df.to_dict('records'),
-                'stock_code': stock_code,
-                'stock_name': stock_name,
-                'y_scale_factor': 1.0  # 查询时重置缩放状态
+                'stock_code': stock_info['code'],
+                'stock_name': stock_info['name'],
+                'y_scale_factor': 1.0  # 初始缩放因子
             }
             
-            return store_data, data_table, summary, chart, None
-        
+            return stored_data, table, summary, dcc.Graph(figure=chart.figure), html.Div(alerts)
+            
         except Exception as e:
-            import traceback
-            error_trace = traceback.format_exc()
-            print("=== 详细错误信息 ===")
-            print(error_trace)
-            print("====================")
-            
-            alert = dbc.Alert([
-                html.H6(f"错误类型: {type(e).__name__}", className="alert-heading mb-1"),
-                html.P(f"错误消息: {str(e)}", className="mb-2"),
-                html.Hr(className="my-2"),
-                html.Pre(error_trace, style={"whiteSpace": "pre-wrap", "fontSize": "11px", "backgroundColor": "#f8f9fa", "padding": "10px", "borderRadius": "5px"})
-            ], color="danger")
-            
-            return None, None, None, None, alert
+            return dash.no_update, dash.no_update, dash.no_update, dash.no_update, dbc.Alert(f"获取数据时出错: {str(e)}", color="danger", dismissable=True)
     
+    # 默认返回
     return dash.no_update, dash.no_update, dash.no_update, dash.no_update, dash.no_update
 
+# 添加全局错误处理
+@app.callback(
+    Output("error-notification", "is_open", allow_duplicate=True),
+    Output("error-notification", "children", allow_duplicate=True),
+    Output("error-notification", "color", allow_duplicate=True),
+    Input("_dummy-input", "n_clicks"),
+    prevent_initial_call=True
+)
+def handle_global_errors(n_clicks):
+    return False, "", "danger"
+
+# 我们已经有了标签页切换回调，不需要这个额外的回调
+
+# 注册DeepSeek UI模块的回调函数
+deepseek_ui.register_callbacks(app)
+
 # 运行应用
-if __name__ == "__main__":
-    app.run(debug=True, port=8050)
+if __name__ == '__main__':
+    app.run(debug=True, dev_tools_silence_routes_logging=False, host='0.0.0.0')
