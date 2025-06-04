@@ -51,9 +51,13 @@ class DataProcessor:
         # 添加历史区间突破标记
         df = self.mark_breakouts(df)
         
+        # 计算中间价动量指标(MPMI)
+        df = self.calculate_mpmi(df)
+        
         # 确保所有列的数据类型正确
         numeric_cols = ['open', 'high', 'low', 'close', 'mid_price', 
-                        'amplitude', 'rel_amplitude', 'mid_upper', 'mid_lower']
+                        'amplitude', 'rel_amplitude', 'mid_upper', 'mid_lower',
+                        'mpmi', 'mpmi_signal', 'mpmi_hist']
         for col in numeric_cols:
             if col in df.columns:
                 df[col] = pd.to_numeric(df[col], errors='coerce')
@@ -190,4 +194,59 @@ class DataProcessor:
         else:
             df['abnormal_amplitude'] = False
             
+        return df
+        
+    def calculate_mpmi(self, df, short_period=12, long_period=26, signal_period=9):
+        """
+        计算中间价动量指标(Mid-Price Momentum Indicator, MPMI)
+        类似于MACD，但基于中间价而非收盘价
+        
+        Parameters:
+        -----------
+        df : pd.DataFrame
+            股票数据，需包含'mid_price'列
+        short_period : int
+            短期EMA周期，默认12
+        long_period : int
+            长期EMA周期，默认26
+        signal_period : int
+            信号线EMA周期，默认9
+            
+        Returns:
+        --------
+        pd.DataFrame : 添加了MPMI指标的DataFrame
+        """
+        if 'mid_price' not in df.columns or df.empty:
+            return df
+        
+        # 确保中间价已计算
+        if 'mid_price' not in df.columns:
+            df['mid_price'] = (df['high'] + df['low']) / 2
+            
+        # 短期EMA
+        df['mid_short_ema'] = df['mid_price'].ewm(span=short_period, adjust=False).mean()
+        # 长期EMA
+        df['mid_long_ema'] = df['mid_price'].ewm(span=long_period, adjust=False).mean()
+        # MPMI线(DIF) - 类似MACD的DIF线
+        df['mpmi'] = df['mid_short_ema'] - df['mid_long_ema']
+        # 信号线(DEA) - 类似MACD的DEA线
+        df['mpmi_signal'] = df['mpmi'].ewm(span=signal_period, adjust=False).mean()
+        # 柱状图(MACD) - 类似MACD的柱状图
+        df['mpmi_hist'] = df['mpmi'] - df['mpmi_signal']
+        
+        # 添加金叉银叉标记
+        df['mpmi_golden_cross'] = False
+        df['mpmi_death_cross'] = False
+        
+        for i in range(1, len(df)):
+            # 金叉：前一天MPMI < 信号线，当天MPMI > 信号线
+            if df['mpmi'].iloc[i-1] < df['mpmi_signal'].iloc[i-1] and \
+               df['mpmi'].iloc[i] > df['mpmi_signal'].iloc[i]:
+                df.loc[df.index[i], 'mpmi_golden_cross'] = True
+                
+            # 银叉：前一天MPMI > 信号线，当天MPMI < 信号线
+            if df['mpmi'].iloc[i-1] > df['mpmi_signal'].iloc[i-1] and \
+               df['mpmi'].iloc[i] < df['mpmi_signal'].iloc[i]:
+                df.loc[df.index[i], 'mpmi_death_cross'] = True
+                
         return df

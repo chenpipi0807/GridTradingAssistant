@@ -14,7 +14,7 @@ class Visualizer:
         
     def create_stock_chart(self, df, title=None, show_kline=False):
         """
-        创建股票图表，包含中间价、振幅和成交量
+        创建股票图表，包含中间价、振幅和成交量，始终显示MPMI指标
         
         Args:
             df: 股票数据框架
@@ -47,16 +47,20 @@ class Visualizer:
         df['display_date'] = df['date']  # 保存真实日期用于显示
         df['date'] = range(len(df))  # 将日期列替换为序号，确保连续性
         
-        # 所有情况下始终都显示成交量
-        # 决定子图行数及高度 - 让K线图和中间价重叠显示
+        # 所有情况下始终都显示成交量和MPMI指标
+        # 根据参数决定子图行数及高度
+        # MPMI始终显示为第二行
         if show_kline:
-            rows = 3  # K线图+中间价重叠, 振幅, 成交量
-            row_heights = [0.5, 0.25, 0.25]  
-            subplot_titles = ("股票行情", "", "")  # 移除中间标题
+            rows = 4  # K线图+中间价重叠, MPMI指标, 振幅, 成交量
+            row_heights = [0.4, 0.2, 0.2, 0.2]  
+            subplot_titles = ("股票行情", "中间价动量指标(MPMI)", "", "")  
         else:
-            rows = 3  # 中间价, 振幅, 成交量
-            row_heights = [0.5, 0.25, 0.25]  
-            subplot_titles = ("中间价走势 (最高价+最低价)/2", "", "")  # 移除中间标题
+            rows = 4  # 中间价, MPMI指标, 振幅, 成交量
+            row_heights = [0.4, 0.2, 0.2, 0.2]  
+            subplot_titles = ("中间价走势 (最高价+最低价)/2", "中间价动量指标(MPMI)", "", "")  
+        
+        # 定义show_mpmi变量为True，保证MPMI始终显示
+        show_mpmi = True
         
         # 创建子图规格，确保每行都支持secondary_y
         specs = []
@@ -74,10 +78,17 @@ class Visualizer:
             specs=specs
         )
         
-        # 初始化行索引，新的布局中K线图和中间价重叠显示
-        price_row = 1      # 第一行显示股价(中间价或K线图+中间价)
-        amplitude_row = 2  # 第二行显示振幅
-        volume_row = 3     # 第三行显示成交量
+        # 初始化行索引，根据子图数量调整行号
+        price_row = 1      # 第一行始终显示股价(中间价或K线图+中间价)
+        
+        # 根据是否显示MPMI来调整其他行
+        if show_mpmi:
+            mpmi_row = 2       # 如果显示MPMI，它在第二行
+            amplitude_row = 3   # 振幅移到第三行
+            volume_row = 4      # 成交量移到第四行
+        else:
+            amplitude_row = 2   # 如果不显示MPMI，振幅在第二行
+            volume_row = 3      # 成交量在第三行
         
         # 1. 绘制K线图和中间价在同一行显示
         
@@ -223,6 +234,116 @@ class Visualizer:
                 )
         
         # 中间价已经在前面绘制完成，这里不再重复绘制
+        
+        # 2.5 如果启用MPMI指标，添加MPMI指标图表
+        if show_mpmi and 'mpmi' in df.columns and 'mpmi_signal' in df.columns and 'mpmi_hist' in df.columns:
+            # 添加MPMI线(类似MACD的DIF线)
+            fig.add_trace(
+                go.Scatter(
+                    x=df['date'],
+                    y=df['mpmi'],
+                    mode='lines',
+                    name="MPMI线",
+                    line=dict(width=1.5, color='rgba(0, 0, 255, 0.8)'),  # 蓝色
+                    hoverinfo='text',
+                    hovertext=[f"日期: {d.strftime('%Y-%m-%d') if isinstance(d, pd.Timestamp) else d}<br>MPMI线: {v:.4f}" 
+                              for d, v in zip(df['display_date'], df['mpmi'])],
+                ),
+                row=mpmi_row, col=1
+            )
+            
+            # 添加信号线(类似MACD的DEA线)
+            fig.add_trace(
+                go.Scatter(
+                    x=df['date'],
+                    y=df['mpmi_signal'],
+                    mode='lines',
+                    name="信号线",
+                    line=dict(width=1.5, color='rgba(255, 165, 0, 0.8)'),  # 橙色
+                    hoverinfo='text',
+                    hovertext=[f"日期: {d.strftime('%Y-%m-%d') if isinstance(d, pd.Timestamp) else d}<br>信号线: {v:.4f}" 
+                              for d, v in zip(df['display_date'], df['mpmi_signal'])],
+                ),
+                row=mpmi_row, col=1
+            )
+            
+            # 添加柱状图 - 使用红绿颜色区分正负值
+            colors = []
+            for val in df['mpmi_hist']:
+                if val >= 0:
+                    colors.append('rgba(255, 99, 71, 0.7)')  # 红色为正值
+                else:
+                    colors.append('rgba(50, 205, 50, 0.7)')  # 绿色为负值
+                    
+            fig.add_trace(
+                go.Bar(
+                    x=df['date'],
+                    y=df['mpmi_hist'],
+                    name="MPMI柱状图",
+                    marker_color=colors,
+                    opacity=0.7,
+                ),
+                row=mpmi_row, col=1
+            )
+            
+            # 添加金叉和银叉标记
+            golden_cross_dates = df[df['mpmi_golden_cross'] == True]['date']
+            golden_cross_values = df.loc[df['mpmi_golden_cross'] == True, 'mpmi']
+            
+            death_cross_dates = df[df['mpmi_death_cross'] == True]['date']
+            death_cross_values = df.loc[df['mpmi_death_cross'] == True, 'mpmi']
+            
+            # 添加金叉标记(上穿)
+            if not golden_cross_dates.empty:
+                fig.add_trace(
+                    go.Scatter(
+                        x=golden_cross_dates,
+                        y=golden_cross_values,
+                        mode='markers',
+                        name="金叉",
+                        marker=dict(symbol='star', size=10, color='gold', line=dict(width=1, color='black')),
+                        hoverinfo='text',
+                        hovertext=[f"金叉: {d.strftime('%Y-%m-%d') if isinstance(d, pd.Timestamp) else d}" 
+                                  for d in df.loc[df['mpmi_golden_cross'] == True, 'display_date']],
+                    ),
+                    row=mpmi_row, col=1
+                )
+            
+            # 添加银叉标记(下穿)
+            if not death_cross_dates.empty:
+                fig.add_trace(
+                    go.Scatter(
+                        x=death_cross_dates,
+                        y=death_cross_values,
+                        mode='markers',
+                        name="银叉",
+                        marker=dict(symbol='cross', size=10, color='silver', line=dict(width=1, color='black')),
+                        hoverinfo='text',
+                        hovertext=[f"银叉: {d.strftime('%Y-%m-%d') if isinstance(d, pd.Timestamp) else d}" 
+                                  for d in df.loc[df['mpmi_death_cross'] == True, 'display_date']],
+                    ),
+                    row=mpmi_row, col=1
+                )
+            
+            # 添加零线参考线
+            fig.add_shape(
+                type="line",
+                x0=df['date'].min(),
+                y0=0,
+                x1=df['date'].max(),
+                y1=0,
+                line=dict(color="rgba(0,0,0,0.3)", width=1, dash="dash"),
+                row=mpmi_row, col=1
+            )
+            
+            # 设置MPMI图表Y轴标题
+            fig.update_yaxes(
+                title_text="MPMI",
+                title_standoff=0,
+                title_font=dict(size=14),
+                side="left",
+                row=mpmi_row, col=1
+            )
         
         # 3. 添加振幅图表 - 统一使用半透明蓝色
         if 'amplitude' in df.columns:

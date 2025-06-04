@@ -178,7 +178,9 @@ def generate_date_options(days=365):
     options = [
         {'label': '近7天', 'value': (today - timedelta(days=7)).strftime('%Y-%m-%d') + '至' + today.strftime('%Y-%m-%d')},
         {'label': '近30天', 'value': (today - timedelta(days=30)).strftime('%Y-%m-%d') + '至' + today.strftime('%Y-%m-%d')},
+        {'label': '近60天', 'value': (today - timedelta(days=60)).strftime('%Y-%m-%d') + '至' + today.strftime('%Y-%m-%d')},
         {'label': '近90天', 'value': (today - timedelta(days=90)).strftime('%Y-%m-%d') + '至' + today.strftime('%Y-%m-%d')},
+        {'label': '近120天', 'value': (today - timedelta(days=120)).strftime('%Y-%m-%d') + '至' + today.strftime('%Y-%m-%d')},
         {'label': '近180天', 'value': (today - timedelta(days=180)).strftime('%Y-%m-%d') + '至' + today.strftime('%Y-%m-%d')},
         {'label': '近一年', 'value': (today - timedelta(days=365)).strftime('%Y-%m-%d') + '至' + today.strftime('%Y-%m-%d')},
     ]
@@ -212,7 +214,7 @@ def parse_stock_input(input_text):
     if is_valid_stock_code(input_text):
         return 'code', format_stock_code(input_text)
     
-    # 检查是否包含股票代码（如：中科曙光(603019)）
+    # 检查是否包含股票代码（如：中科曙光(301536)）
     code_pattern = r'.*?\(?([0-9]{6})\)?'
     match = re.search(code_pattern, input_text)
     if match:

@@ -138,8 +138,8 @@ def get_market_layout():
                         dbc.InputGroup([
                             dbc.Input(
                                 id="stock-input",
-                                placeholder="如：603019 / 中科曙光",
-                                value="603019",
+                                placeholder="如：301536 / 中科曙光",
+                                value="301536",
                                 style={"height": "36px"},
                                 className="border-light-subtle",
                             ),
@@ -153,7 +153,7 @@ def get_market_layout():
                         dcc.Dropdown(
                             id="date-range-dropdown",
                             options=utils.generate_date_options(),
-                            value=(datetime.now() - timedelta(days=90)).strftime('%Y-%m-%d') + '至' + datetime.now().strftime('%Y-%m-%d'),
+                            value=(datetime.now() - timedelta(days=30)).strftime('%Y-%m-%d') + '至' + datetime.now().strftime('%Y-%m-%d'),
                             className="mb-3 small",
                             style={"fontSize": "12px"},
                         ),
@@ -217,17 +217,16 @@ def get_market_layout():
                                         dbc.Button("重置", id="reset-zoom-btn", color="light", className="mx-1 p-1", 
                                                   size="sm", style={"height": "30px", "font-size": "12px"}),
                                     ], className="float-end me-2"),
-                                    # 添加K线图切换开关
-                                    html.Div(
+                                    # 只保留K线图切换开关
+                                    html.Div([
                                         dbc.Switch(
                                             id="kline-toggle",
                                             label="显示K线图",
                                             value=False,  # 默认关闭
                                             className="mt-0",
                                             style={"font-size": "12px"}
-                                        ),
-                                        className="float-end"
-                                    )
+                                        )
+                                    ], className="float-end d-flex")
                                 ]),
                             ], className="py-2 border-bottom d-flex justify-content-between", style={"border-left": "3px solid #7D5BA6", "background": "#FCFCFE"}),
                             dbc.CardBody([
@@ -388,7 +387,7 @@ def create_summary_cards(df):
     ],
     prevent_initial_call=True
 )
-def update_chart(query_clicks, zoom_in_clicks, zoom_out_clicks, reset_clicks, kline_toggle, 
+def update_chart(query_clicks, zoom_in_clicks, zoom_out_clicks, reset_clicks, kline_toggle,
                  stock_code, date_range, data_source, stored_data):
     """整合的回调函数，处理查询和缩放功能"""
     ctx = dash.callback_context
@@ -441,11 +440,12 @@ def update_chart(query_clicks, zoom_in_clicks, zoom_out_clicks, reset_clicks, kl
         # 存储当前缩放状态
         y_scale_factor = 1.0  # 默认比例
         
-        # 创建新的图表，传递K线图显示状态
+        # 创建新的图表，传递K线图和MPMI指标显示状态
         chart = visualizer.create_stock_chart(
             df, 
             f"{stock_name} ({stock_code}) 中间价与振幅分析",
             show_kline=kline_toggle  # 根据开关状态决定是否显示K线图
+            # MPMI指标始终显示，不需要开关控制
         )
         fig = chart.figure
         
@@ -525,7 +525,7 @@ def update_chart(query_clicks, zoom_in_clicks, zoom_out_clicks, reset_clicks, kl
                     "data_source": data_source
                 }, f, ensure_ascii=False)
             
-            # 创建图表
+            # 创建图表 - MPMI指标始终显示
             chart = visualizer.create_stock_chart(
                 df, 
                 f"{stock_info['name']} ({stock_info['code']}) 中间价与振幅分析",
