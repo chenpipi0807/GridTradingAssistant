@@ -244,7 +244,7 @@ class Visualizer:
                     y=df['mpmi'],
                     mode='lines',
                     name="MPMI线",
-                    line=dict(width=1.5, color='rgba(0, 0, 255, 0.8)'),  # 蓝色
+                    line=dict(width=3.0, color='rgb(0, 255, 0)'),  # 荧光绿
                     hoverinfo='text',
                     hovertext=[f"日期: {d.strftime('%Y-%m-%d') if isinstance(d, pd.Timestamp) else d}<br>MPMI线: {v:.4f}" 
                               for d, v in zip(df['display_date'], df['mpmi'])],
@@ -259,7 +259,7 @@ class Visualizer:
                     y=df['mpmi_signal'],
                     mode='lines',
                     name="信号线",
-                    line=dict(width=1.5, color='rgba(255, 165, 0, 0.8)'),  # 橙色
+                    line=dict(width=3.0, color='rgb(255, 255, 0)'),  # 荧光黄
                     hoverinfo='text',
                     hovertext=[f"日期: {d.strftime('%Y-%m-%d') if isinstance(d, pd.Timestamp) else d}<br>信号线: {v:.4f}" 
                               for d, v in zip(df['display_date'], df['mpmi_signal'])],
