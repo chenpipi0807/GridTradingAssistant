@@ -19,13 +19,10 @@
 - **枢纽点策略支持**：支持计算枢纽点和支撑/阻力位，辅助网格交易决策
   
 
+![image](https://github.com/user-attachments/assets/f40673a1-b8ef-466e-9d40-4e1b562216cb)
+
+
 ![微信截图_20250525183908](https://github.com/user-attachments/assets/6af58bd8-aebd-42bc-8664-df0e737a6f32)
-
-![微信截图_20250525200009](https://github.com/user-attachments/assets/e9505a82-3022-46f5-9f4e-f238deaf6675)
-
-![微信截图_20250525200119](https://github.com/user-attachments/assets/23e43437-4fa9-4826-a1dc-a1493749d327)
-
-![image](https://github.com/user-attachments/assets/c6abb3bc-86ff-4bfd-806a-84a076618931)
 
 
 
