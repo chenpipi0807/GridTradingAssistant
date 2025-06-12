@@ -35,6 +35,10 @@ class DataProcessor:
         # 计算基础振幅：(最高价 - 最低价) / 最低价 × 100%
         df['amplitude'] = (df['high'] - df['low']) / df['low'] * 100
         
+        # 计算开盘价与中间价差值百分比：(中间价 - 开盘价) / 中间价 × 100%
+        # 当中间价高于开盘价时，差值为正；当中间价低于开盘价时，差值为负
+        df['open_mid_diff'] = (df['mid_price'] - df['open']) / df['mid_price'] * 100
+        
         # 计算相对振幅：(最高价 - 最低价) / 前日收盘价 × 100%
         df['rel_amplitude'] = np.nan
         for i in range(1, len(df)):
@@ -57,7 +61,7 @@ class DataProcessor:
         # 确保所有列的数据类型正确
         numeric_cols = ['open', 'high', 'low', 'close', 'mid_price', 
                         'amplitude', 'rel_amplitude', 'mid_upper', 'mid_lower',
-                        'mpmi', 'mpmi_signal', 'mpmi_hist']
+                        'mpmi', 'mpmi_signal', 'mpmi_hist', 'open_mid_diff']
         for col in numeric_cols:
             if col in df.columns:
                 df[col] = pd.to_numeric(df[col], errors='coerce')

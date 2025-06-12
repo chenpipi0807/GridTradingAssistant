@@ -27,7 +27,7 @@ app = dash.Dash(
     __name__,
     external_stylesheets=[dbc.themes.BOOTSTRAP, "https://use.fontawesome.com/releases/v5.15.4/css/all.css"],
     meta_tags=[{"name": "viewport", "content": "width=device-width, initial-scale=1"}],
-    title="网格交易大师V3",
+    title="网格交易大师V4",
     suppress_callback_exceptions=True  # 添加这个参数来抑制回调异常
 )
 
@@ -57,7 +57,7 @@ app.layout = html.Div([
             html.A(
                 dbc.Row([
                     dbc.Col(html.Img(src="assets/logo.png", height="28px"), width="auto"),
-                    dbc.Col(dbc.NavbarBrand("网格交易大师V3", className="ms-2 fw-normal", style={"color": "#4D4B63"})),
+                    dbc.Col(dbc.NavbarBrand("网格交易大师V4", className="ms-2 fw-normal", style={"color": "#4D4B63"})),
                 ], align="center", className="g-0"),
                 href="/",
                 style={"textDecoration": "none"},
@@ -392,7 +392,7 @@ def update_chart(query_clicks, zoom_in_clicks, zoom_out_clicks, reset_clicks, kl
     """整合的回调函数，处理查询和缩放功能"""
     ctx = dash.callback_context
     if not ctx.triggered:
-        return dash.no_update, dash.no_update, dash.no_update, dash.no_update, dash.no_update
+        return dash.no_update, dash.no_update, dash.no_update, dash.no_update, dash.no_updateZHELI
     
     # 获取触发回调的按钮 ID
     triggered_id = ctx.triggered[0]['prop_id'].split('.')[0]
@@ -533,7 +533,7 @@ def update_chart(query_clicks, zoom_in_clicks, zoom_out_clicks, reset_clicks, kl
             )
             
             # 创建数据表格
-            table = visualizer.create_stock_table(df)
+            table = visualizer.create_data_table(df)
             
             # 创建摘要卡片
             summary = visualizer.create_summary_cards(df)

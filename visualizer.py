@@ -50,14 +50,15 @@ class Visualizer:
         # 所有情况下始终都显示成交量和MPMI指标
         # 根据参数决定子图行数及高度
         # MPMI始终显示为第二行
+        # 新增开盘价与中间价差值图表
         if show_kline:
-            rows = 4  # K线图+中间价重叠, MPMI指标, 振幅, 成交量
-            row_heights = [0.4, 0.2, 0.2, 0.2]  
-            subplot_titles = ("股票行情", "中间价动量指标(MPMI)", "", "")  
+            rows = 5  # K线图+中间价重叠, MPMI指标, 开盘价与中间价差值, 振幅, 成交量
+            row_heights = [0.4, 0.15, 0.15, 0.15, 0.15]  
+            subplot_titles = ("", "中间价动量指标(MPMI)", "开盘价与中间价差值(%)", "", "")  
         else:
-            rows = 4  # 中间价, MPMI指标, 振幅, 成交量
-            row_heights = [0.4, 0.2, 0.2, 0.2]  
-            subplot_titles = ("中间价走势 (最高价+最低价)/2", "中间价动量指标(MPMI)", "", "")  
+            rows = 5  # 中间价, MPMI指标, 开盘价与中间价差值, 振幅, 成交量
+            row_heights = [0.4, 0.15, 0.15, 0.15, 0.15]  
+            subplot_titles = ("", "中间价动量指标(MPMI)", "开盘价与中间价差值(%)", "", "")  
         
         # 定义show_mpmi变量为True，保证MPMI始终显示
         show_mpmi = True
@@ -84,11 +85,13 @@ class Visualizer:
         # 根据是否显示MPMI来调整其他行
         if show_mpmi:
             mpmi_row = 2       # 如果显示MPMI，它在第二行
-            amplitude_row = 3   # 振幅移到第三行
-            volume_row = 4      # 成交量移到第四行
+            open_mid_diff_row = 3  # 开盘价与中间价差值在第三行
+            amplitude_row = 4   # 振幅移到第四行
+            volume_row = 5      # 成交量移到第五行
         else:
-            amplitude_row = 2   # 如果不显示MPMI，振幅在第二行
-            volume_row = 3      # 成交量在第三行
+            open_mid_diff_row = 2  # 开盘价与中间价差值在第二行
+            amplitude_row = 3   # 振幅在第三行
+            volume_row = 4      # 成交量在第四行
         
         # 1. 绘制K线图和中间价在同一行显示
         
@@ -345,6 +348,53 @@ class Visualizer:
                 row=mpmi_row, col=1
             )
         
+        # 3. 添加开盘价与中间价差值图表
+        if 'open_mid_diff' in df.columns:
+            # 为差值百分比创建柱状图，使用红绿颜色区分正负值
+            colors = []
+            for val in df['open_mid_diff']:
+                if val >= 0:
+                    colors.append('rgba(255, 99, 71, 0.7)')  # 红色为正值（开盘价高于中间价）
+                else:
+                    colors.append('rgba(50, 205, 50, 0.7)')  # 绿色为负值（开盘价低于中间价）
+            
+            # 添加柱状图
+            fig.add_trace(
+                go.Bar(
+                    x=df['date'],
+                    y=df['open_mid_diff'],
+                    name="开盘价与中间价差值(%)",
+                    marker_color=colors,
+                    opacity=0.9,
+                    customdata=hover_data,
+                    hovertemplate="<b>%{customdata[0]}</b><br>"
+                                 "开盘价: %{customdata[2]:.2f}<br>"
+                                 "中间价: %{customdata[1]:.2f}<br>"
+                                 "差值: %{y:.2f}%<br>"
+                ),
+                row=open_mid_diff_row, col=1
+            )
+            
+            # 添加零线参考线
+            fig.add_shape(
+                type="line",
+                x0=df['date'].min(),
+                y0=0,
+                x1=df['date'].max(),
+                y1=0,
+                line=dict(color="rgba(0,0,0,0.3)", width=1, dash="dash"),
+                row=open_mid_diff_row, col=1
+            )
+            
+            # 设置图表Y轴标题
+            fig.update_yaxes(
+                title_text="差值(%)",
+                title_standoff=0,
+                title_font=dict(size=14),
+                side="left",
+                row=open_mid_diff_row, col=1
+            )
+        
         # 3. 添加振幅图表 - 统一使用半透明蓝色
         if 'amplitude' in df.columns:
             # 所有情况下都使用半透明蓝色
@@ -453,7 +503,8 @@ class Visualizer:
             low_price = df.iloc[i].get('low', 0)
             amplitude = df.iloc[i].get('amplitude', 0)
             volume = df.iloc[i].get('volume', 0)
-            hover_data.append([date_str, mid_price, open_price, close_price, high_price, low_price, amplitude, volume])
+            open_mid_diff = df.iloc[i].get('open_mid_diff', 0)
+            hover_data.append([date_str, mid_price, open_price, close_price, high_price, low_price, amplitude, volume, open_mid_diff])
         
         # 对于前两个子图，显示较少日期
         few_dates_step = max(1, len(df) // 8)  # 每8个数据点显示一个日期
@@ -523,37 +574,57 @@ class Visualizer:
             }
         )
         
-    def create_stock_table(self, df):
-        """创建股票数据表格，显示所有可用数据"""
+    def create_data_table(self, df):
+        """创建展示数据的表格"""
         if df.empty:
-            return html.Div("无表格数据")
-            
-        # 格式化日期列
-        df['date'] = pd.to_datetime(df['date']).dt.strftime('%Y-%m-%d')
+            return html.Div("无数据表格")
         
-        # 全面的数据列定义，包含所有可能有的数据
-        display_cols = {
+        # 选择并格式化要显示的列
+        display_cols = [
+            'date', 'open', 'high', 'low', 'close', 'mid_price', 'open_mid_diff',
+            'volume', 'amplitude', 'MPMI_Signal', 'MPMI_Line'
+        ]
+        
+        # 确保所有列都存在
+        display_cols = [col for col in display_cols if col in df.columns]
+        
+        # 选择最后30行数据
+        df_display = df.tail(30).copy()
+        
+        # 创建数据表格
+        df_display = df_display[display_cols]
+        
+        # 格式化日期
+        df_display['date'] = df_display['date'].astype(str)
+        
+        # 格式化数值列
+        for col in df_display.columns:
+            if col != 'date' and col not in ['MPMI_Signal']:
+                df_display[col] = df_display[col].round(2)
+                
+        # 更新列名
+        column_names = {
             'date': '日期',
             'open': '开盘价',
-            'close': '收盘价',
-            'high': '最高价', 
+            'high': '最高价',
             'low': '最低价',
-            'volume': '成交量', 
-            'amount': '成交额',
+            'close': '收盘价',
             'mid_price': '中间价',
+            'open_mid_diff': '开盘价与中间价差值(%)',
+            'volume': '成交量',
             'amplitude': '振幅(%)',
-            'mid_upper': '中间价上轨',
-            'mid_lower': '中间价下轨'
+            'MPMI_Signal': '信号',
+            'MPMI_Line': 'MPMI线'
         }
         
         # 过滤存在的列
-        cols_to_show = [col for col in display_cols.keys() if col in df.columns]
+        cols_to_show = [col for col in display_cols if col in df.columns]
         
         # 创建一个新的DataFrame，只包含要显示的列
         table_df = df[cols_to_show].copy()
         
         # 重命名列
-        table_df.columns = [display_cols[col] for col in cols_to_show]
+        table_df.columns = [column_names.get(col, col) for col in cols_to_show]
         
         # 格式化数值
         for col in table_df.columns:
@@ -584,7 +655,8 @@ class Visualizer:
         
         return html.Div([
             html.H5("近期数据", className="text-center my-3"),
-            table
+            table,
+            self.create_summary_cards(df)  # 创建摘要卡片
         ])
     
     def create_summary_cards(self, df, strategy_results=None):
@@ -640,6 +712,26 @@ class Visualizer:
                     dbc.CardBody([
                         html.H5("中间价", className="card-title"),
                         html.H3(f"¥{latest_mid:.2f}", className="card-text text-success"),
+                    ]),
+                    className="m-2 shadow"
+                )
+            )
+        
+        # 开盘价与中间价差值卡片
+        if 'open_mid_diff' in df.columns:
+            latest_open_mid_diff = latest_data['open_mid_diff']
+            avg_open_mid_diff = df['open_mid_diff'].mean()
+            
+            # 确定颜色：正值为红色，负值为绿色
+            diff_color = "text-danger" if latest_open_mid_diff >= 0 else "text-success"
+            diff_sign = "+" if latest_open_mid_diff > 0 else ""
+            
+            cards.append(
+                dbc.Card(
+                    dbc.CardBody([
+                        html.H5("开盘价与中间价差值", className="card-title"),
+                        html.H3(f"{diff_sign}{latest_open_mid_diff:.2f}%", className=f"card-text {diff_color}"),
+                        html.P(f"平均差值: {avg_open_mid_diff:.2f}%", className="card-text text-muted"),
                     ]),
                     className="m-2 shadow"
                 )
