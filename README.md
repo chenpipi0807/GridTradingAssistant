@@ -26,55 +26,6 @@
 ![微信截图_20250615002043](https://github.com/user-attachments/assets/aa655f2c-b49d-49d6-ab6d-3c6eef41b898)
 
 
-## 中间价动量指标 (MPMI) 原理
-
-MPMI（Mid-Price Momentum Indicator）是基于中间价的动量指标，引入了类似MACD（移动平均收敛散度）的计算途径，但底层数据使用的是中间价而非收盘价。
-
-### 核心计算方法
-
-1. **中间价定义**：`mid_price = (highest + lowest) / 2`
-
-2. **MPMI线**：中间价短期指数移动平均线与长期指数移动平均线的差值
-   ```python
-   ema_short = mid_price.ewm(span=12, adjust=False).mean()
-   ema_long = mid_price.ewm(span=26, adjust=False).mean()
-   mpmi = ema_short - ema_long
-   ```
-
-3. **信号线**：MPMI线的9日指数移动平均
-   ```python
-   signal = mpmi.ewm(span=9, adjust=False).mean()
-   ```
-
-4. **柱状图**：MPMI线与信号线的差值
-   ```python
-   hist = mpmi - signal
-   ```
-
-5. **金叉/死叉信号**：
-   - **金叉**：MPMI线从下向上穿过信号线，买入信号
-     ```python
-     golden_cross = (mpmi > signal) & (mpmi.shift(1) <= signal.shift(1))
-     ```
-   - **死叉**：MPMI线从上向下穿过信号线，卖出信号
-     ```python
-     death_cross = (mpmi < signal) & (mpmi.shift(1) >= signal.shift(1))
-     ```
-
-### 指标特点
-
-- **基于中间价**：与MACD不同，MPMI使用中间价而非收盘价，更能反映价格区间的真实动态
-- **更敏感的价格波动**：捕捉价格区间内的动量变化，有助于发现价格趋势转折点
-- **见底效应增强**：中间价在波动中常先于收盘价出现底部特征，帮助更早发现可能的反转信号
-- **可视化展示**：系统会自动标记金叉和死叉信号，并通过柱状图显示动量强度
-
-### 交易策略应用
-
-- 金叉出现时考虑买入或增仓
-- 死叉出现时考虑卖出或减仓
-- 结合中间价振幅进行网格交易策略制定
-- 当柱状图呈现持续收缩时可能预示动量减弱，趋势可能发生变化
-
 ## 更新日志
 
 - 2025年6月15日
