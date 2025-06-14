@@ -2,7 +2,7 @@
 import os
 import json
 import requests
-from typing import List, Dict, Any, Optional, Union
+from typing import List, Dict, Any, Optional, Union, Generator
 import time
 
 class DeepSeekAPI:
@@ -79,8 +79,8 @@ class DeepSeekAPI:
              messages: List[Dict[str, str]], 
              model: str = None, 
              temperature: float = 0.7, 
-             max_tokens: int = 2048,
-             stream: bool = False) -> Dict[str, Any]:
+             max_tokens: int = 8192,
+             stream: bool = False) -> Union[Dict[str, Any], Generator[Dict[str, Any], None, None]]:
         """
         与DeepSeek模型进行对话
         
@@ -92,7 +92,8 @@ class DeepSeekAPI:
             stream: 是否使用流式输出，默认False
             
         返回:
-            API响应结果
+            如果stream=False，返回API响应结果字典
+            如果stream=True，返回生成器，可以迭代获取流式响应片段
         """
         model_id = self.models.get(model or self.default_model, self.models[self.default_model])
         
@@ -110,13 +111,62 @@ class DeepSeekAPI:
         }
         
         try:
-            response = requests.post(
-                f"{self.api_base}{self.chat_endpoint}",
-                headers=headers,
-                json=payload
-            )
-            response.raise_for_status()
-            return response.json()
+            if not stream:
+                # 非流式模式 - 返回完整响应
+                response = requests.post(
+                    f"{self.api_base}{self.chat_endpoint}",
+                    headers=headers,
+                    json=payload
+                )
+                response.raise_for_status()
+                return response.json()
+            else:
+                # 流式模式 - 返回生成器
+                def generate_responses():
+                    # 使用stream=True返回一个运行的请求，允许分批读取内容
+                    with requests.post(
+                        f"{self.api_base}{self.chat_endpoint}",
+                        headers=headers,
+                        json=payload,
+                        stream=True
+                    ) as response:
+                        response.raise_for_status()
+                        
+                        # 流式返回格式是多个数据块，每个以data: 开头
+                        cumulative_text = ""
+                        for line in response.iter_lines():
+                            if line:
+                                line = line.decode('utf-8')
+                                # 跳过空行或非JSON行
+                                if not line.startswith('data: '):
+                                    continue
+                                    
+                                data_str = line[len('data: '):]
+                                # 特殊标记，表示流结束
+                                if data_str.strip() == "[DONE]":
+                                    break
+                                    
+                                try:
+                                    data = json.loads(data_str)
+                                    delta = data.get("choices", [{}])[0].get("delta", {})
+                                    content = delta.get("content", "")
+                                    if content:
+                                        cumulative_text += content
+                                        yield {
+                                            "choices": [{
+                                                "message": {
+                                                    "role": "assistant",
+                                                    "content": cumulative_text
+                                                },
+                                                "delta": {
+                                                    "content": content
+                                                }
+                                            }]
+                                        }
+                                except json.JSONDecodeError:
+                                    continue
+                            
+                return generate_responses()
         except requests.exceptions.RequestException as e:
             return {"error": str(e)}
     
@@ -125,7 +175,8 @@ class DeepSeekAPI:
                        file_paths: List[str],
                        model: str = None, 
                        temperature: float = 0.7, 
-                       max_tokens: int = 2048) -> Dict[str, Any]:
+                       max_tokens: int = 8192,
+                       stream: bool = False) -> Union[Dict[str, Any], Generator[Dict[str, Any], None, None]]:
         """
         发送文件并与DeepSeek模型进行对话
         
@@ -134,7 +185,7 @@ class DeepSeekAPI:
             file_paths: 要发送的文件路径列表
             model: 模型名称，默认为deepseek-reasoner
             temperature: 温度参数，控制输出随机性，默认0.7
-            max_tokens: 最大生成token数，默认2048
+            max_tokens: 最大生成token数，默认8192
             
         返回:
             API响应结果
@@ -143,7 +194,7 @@ class DeepSeekAPI:
         
         # 如果没有文件，使用标准聊天API
         if not file_paths:
-            return self.chat(messages, model, temperature, max_tokens)
+            return self.chat(messages, model, temperature, max_tokens, stream)
             
         # 读取文件内容
         file_contents = []
@@ -182,17 +233,67 @@ class DeepSeekAPI:
             "model": model_id,
             "messages": enriched_messages,
             "temperature": temperature,
-            "max_tokens": max_tokens
+            "max_tokens": max_tokens,
+            "stream": stream
         }
         
         try:
-            response = requests.post(
-                f"{self.api_base}{self.chat_endpoint}",
-                headers=headers,
-                json=payload
-            )
-            response.raise_for_status()
-            return response.json()
+            if not stream:
+                # 非流式模式
+                response = requests.post(
+                    f"{self.api_base}{self.chat_endpoint}",
+                    headers=headers,
+                    json=payload
+                )
+                response.raise_for_status()
+                return response.json()
+            else:
+                # 流式模式 - 返回生成器
+                def generate_responses():
+                    # 使用stream=True返回一个运行的请求，允许分批读取内容
+                    with requests.post(
+                        f"{self.api_base}{self.chat_endpoint}",
+                        headers=headers,
+                        json=payload,
+                        stream=True
+                    ) as response:
+                        response.raise_for_status()
+                        
+                        # 流式返回格式是多个数据块，每个以data: 开头
+                        cumulative_text = ""
+                        for line in response.iter_lines():
+                            if line:
+                                line = line.decode('utf-8')
+                                # 跳过空行或非JSON行
+                                if not line.startswith('data: '):
+                                    continue
+                                    
+                                data_str = line[len('data: '):]
+                                # 特殊标记，表示流结束
+                                if data_str.strip() == "[DONE]":
+                                    break
+                                    
+                                try:
+                                    data = json.loads(data_str)
+                                    delta = data.get("choices", [{}])[0].get("delta", {})
+                                    content = delta.get("content", "")
+                                    if content:
+                                        cumulative_text += content
+                                        yield {
+                                            "choices": [{
+                                                "message": {
+                                                    "role": "assistant",
+                                                    "content": cumulative_text
+                                                },
+                                                "delta": {
+                                                    "content": content
+                                                }
+                                            }]
+                                        }
+                                except json.JSONDecodeError:
+                                    continue
+                            
+                return generate_responses()
         except requests.exceptions.RequestException as e:
             return {"error": str(e)}
     

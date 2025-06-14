@@ -27,20 +27,22 @@ app = dash.Dash(
     __name__,
     external_stylesheets=[dbc.themes.BOOTSTRAP, "https://use.fontawesome.com/releases/v5.15.4/css/all.css"],
     meta_tags=[{"name": "viewport", "content": "width=device-width, initial-scale=1"}],
-    title="网格交易大师V4",
+    title="网格交易大师V5",
     suppress_callback_exceptions=True  # 添加这个参数来抑制回调异常
 )
 
 # 创建标签页
 tabs = dbc.Tabs(
     [
-        dbc.Tab(label="行情分析", tab_id="tab-market", 
+        dbc.Tab(label="行情分析", tab_id="market-tab", 
                 labelClassName="fw-bold", activeLabelClassName="text-primary"),
-        dbc.Tab(label="DeepSeek对话", tab_id="tab-deepseek", 
+        dbc.Tab(label="DeepSeek对话", tab_id="deepseek-tab", 
+                labelClassName="fw-bold", activeLabelClassName="text-primary"),
+        dbc.Tab(label="观测指标与技巧", tab_id="indicators-tab", 
                 labelClassName="fw-bold", activeLabelClassName="text-primary"),
     ],
     id="tabs",
-    active_tab="tab-market",
+    active_tab="market-tab",
     className="mb-3"
 )
 
@@ -57,7 +59,7 @@ app.layout = html.Div([
             html.A(
                 dbc.Row([
                     dbc.Col(html.Img(src="assets/logo.png", height="28px"), width="auto"),
-                    dbc.Col(dbc.NavbarBrand("网格交易大师V4", className="ms-2 fw-normal", style={"color": "#4D4B63"})),
+                    dbc.Col(dbc.NavbarBrand("网格交易大师V5", className="ms-2 fw-normal", style={"color": "#4D4B63"})),
                 ], align="center", className="g-0"),
                 href="/",
                 style={"textDecoration": "none"},
@@ -92,13 +94,13 @@ app.layout = html.Div([
         html.Footer([
             html.Hr(style={"margin": "10px 0", "border-top": "1px solid #f0f0f0"}),
             html.P(
-                "网格交易大师 V3.0 © 2025",
+                "网格交易大师 © 2025",
                 className="text-center text-muted small",
                 style={"margin-bottom": "8px"}
             ),
         ]),
     ], fluid=True, className="px-4 pb-2"),  # 减少容器内边距
-], style={"background-color": "#fafafa"})  # 整体背景色
+], style={"background-color": "#fcfcfc"})  # 提高整体背景色亮度
 
 # 创建资产目录
 if not os.path.exists("assets"):
@@ -119,11 +121,164 @@ if not os.path.exists("chattemp"):
 )
 def render_tab_content(active_tab):
     """根据选中的标签页渲染内容"""
-    if active_tab == "tab-market":
+    if active_tab == "market-tab":
         return get_market_layout()
-    elif active_tab == "tab-deepseek":
+    elif active_tab == "deepseek-tab":
         return deepseek_ui.get_deepseek_layout()
+    elif active_tab == "indicators-tab":
+        return get_indicators_layout()
     return html.P("未知标签页")
+
+def get_indicators_layout():
+    """获取观测指标与技巧标签页的布局"""
+    return html.Div([
+        dbc.Row([
+            dbc.Col([
+                html.H4("观测指标与技巧", className="text-primary mb-3"),
+                
+                # 振幅指标说明
+                html.H5("振幅指标", className="text-success mt-4 mb-2"),
+                dbc.Card(dbc.CardBody([
+                    html.P([
+                        "振幅是股票价格在特定时间段内的波动范围，计算方式为：",
+                        html.Code("振幅 = (最高价 - 最低价) / 最低价 * 100%")
+                    ]),
+                    html.P([
+                        "观测技巧：",
+                        html.Ul([
+                            html.Li("高振幅通常意味着市场情绪波动较大，可能伴随着重要信息的发布或市场不确定性"),
+                            html.Li("将当日振幅与历史分位数比较，可以判断当前市场活跃程度"),
+                            html.Li("持续的高振幅可能预示着价格趋势的转变或市场情绪的极端化")
+                        ])
+                    ])
+                ])),
+                
+                # 中间价与开盘价差值说明
+                html.H5("中间价与开盘价差值", className="text-success mt-4 mb-2"),
+                dbc.Card(dbc.CardBody([
+                    html.P([
+                        "中间价与开盘价差值反映了股票当天价格运行的中心位置与开盘位置的关系：",
+                        html.Code("差值 = (中间价 - 开盘价) / 中间价 * 100%")
+                    ]),
+                    html.P([
+                        "观测技巧：",
+                        html.Ul([
+                            html.Li("正差值意味着中间价高于开盘价，表示价格中心在上移"),
+                            html.Li("负差值意味着中间价低于开盘价，表示价格中心在下移"),
+                            html.Li("差值的绝对值越大，表示价格偏离开盘的程度越大"),
+                            html.Li("连续多日的同向差值可能表示趋势正在形成")
+                        ])
+                    ])
+                ])),
+                
+                # ATR指标说明
+                html.H5("ATR指标 (Average True Range)", className="text-success mt-4 mb-2"),
+                dbc.Card(dbc.CardBody([
+                    html.P("ATR指标是衡量市场波动性的重要指标，由Welles Wilder开发。它计算最近N天的真实范围(True Range)的平均值。"),
+                    html.P([
+                        "真实范围(True Range)的计算方法为以下三个值中的最大值：",
+                        html.Ol([
+                            html.Li("当日最高价 - 当日最低价"),
+                            html.Li("|当日最高价 - 前一日收盘价|"),
+                            html.Li("|当日最低价 - 前一日收盘价|")
+                        ])
+                    ]),
+                    html.P("ATR = 过去N天TR值的指数移动平均(默认N=14)"),
+                    html.P([
+                        "ATR观测技巧：",
+                        html.Ul([
+                            html.Li("ATR值越高，表示市场波动越大；ATR值越低，表示市场波动越小"),
+                            html.Li("ATR的变化趋势比绝对值更重要：上升的ATR表示波动性增强，下降的ATR表示波动性减弱"),
+                            html.Li("ATR常用于确定止损位置：例如设置止损在当前价格减去1.5倍ATR"),
+                            html.Li("ATR也用于判断市场趋势强度：在趋势形成初期，ATR往往会增大"),
+                            html.Li("ATR不能判断价格方向，只能判断波动程度"),
+                        ])
+                    ])
+                ])),
+                
+                # ATR应用场景
+                html.H5("ATR在交易中的应用", className="text-success mt-4 mb-2"),
+                dbc.Card(dbc.CardBody([
+                    html.P([
+                        "1. 波动突破策略：",
+                        html.Ul([
+                            html.Li("当价格突破上一交易日收盘价上方X倍ATR时买入"),
+                            html.Li("当价格跌破上一交易日收盘价下方X倍ATR时卖出"),
+                        ])
+                    ]),
+                    html.P([
+                        "2. 通道突破策略：",
+                        html.Ul([
+                            html.Li("上轨 = 移动平均线 + 2*ATR"),
+                            html.Li("下轨 = 移动平均线 - 2*ATR"),
+                            html.Li("价格突破上轨买入，跌破下轨卖出")
+                        ])
+                    ]),
+                    html.P([
+                        "3. 组合指标应用：",
+                        html.Ul([
+                            html.Li("ATR与振幅结合：先用振幅判断市场活跃度，再用ATR判断趋势强度"),
+                            html.Li("ATR与中间价差值结合：中间价差值判断方向，ATR判断力度")
+                        ])
+                    ])
+                ])),
+                
+                # DeepSeek使用说明 - 新增
+                html.H5("DeepSeek使用说明", className="text-success mt-4 mb-2"),
+                dbc.Card(dbc.CardBody([
+                    html.P("DeepSeek是强大的AI助手，可以帮助您分析股票数据和网格交易策略。以下是使用说明："),
+                    html.P([
+                        html.Strong("1. 获取API密钥："),
+                        html.Ul([
+                            html.Li("访问DeepSeek官方网站注册账户"),
+                            html.Li("在个人账户中申请并获取API密钥"),
+                            html.Li("API密钥是您访问DeepSeek服务的唯一凭证，请妥善保管")
+                        ])
+                    ]),
+                    html.P([
+                        html.Strong("2. 在应用中使用："),
+                        html.Ul([
+                            html.Li("切换到DeepSeek标签页"),
+                            html.Li("在左侧控制面板中输入您的API密钥并点击保存"),
+                            html.Li("选择合适的模型（推荐使用DeepSeek-R1以获得更好的分析能力）"),
+                            html.Li("可以上传当前股票数据以便AI分析"),
+                            html.Li("使用预设问题或输入自定义问题进行交流")
+                        ])
+                    ]),
+                    html.P([
+                        "项目源码和更多信息：",
+                        html.A("https://github.com/chenpipi0807/GridTradingAssistant", 
+                               href="https://github.com/chenpipi0807/GridTradingAssistant", 
+                               target="_blank",
+                               className="text-decoration-none")
+                    ]),
+                    html.P("关于网格交易的技术交流可以在GitHub项目页面给我留言。", className="mb-3"),
+                    html.Div([
+                        html.P("或者扫描下方二维码添加微信，一起交流量化交易心得：", className="text-center mb-2"),
+                        html.Img(
+                            src="/assets/aboutme.png",
+                            alt="微信二维码",
+                            style={"maxWidth": "200px", "display": "block", "margin": "0 auto"}
+                        )
+                    ], className="text-center")
+                ])),
+                
+                # 作者赞赏
+                html.H5("赞赏作者", className="text-success mt-4 mb-2"),
+                dbc.Card(dbc.CardBody([
+                    html.P("如果本工具对您的交易有所帮助，欢迎请我喝杯咖啡 ☕", className="text-center mb-3"),
+                    html.Div([
+                        html.Img(
+                            src="/assets/pipchen.png",
+                            alt="赞赏码",
+                            style={"maxWidth": "200px", "display": "block", "margin": "0 auto"}
+                        )
+                    ], className="text-center"),
+                    html.P("感谢您的支持！更多功能持续开发中...", className="text-center mt-3 text-muted small")
+                ])),
+            ], width=10, className="mx-auto")
+        ])
+    ], className="py-3")
 
 def get_market_layout():
     """获取行情分析标签页的布局"""
@@ -134,28 +289,32 @@ def get_market_layout():
                 dbc.Card([
                     dbc.CardBody([
                         # 股票输入
-                        dbc.Label("股票代码/名称", className="mb-1 small fw-bold", style={"color": "#4D4B63"}),
+                        dbc.Label("股票代码/名称", className="mb-1 small fw-bold", style={"color": "#4D4B63", "fontSize": "11px"}),
                         dbc.InputGroup([
                             dbc.Input(
                                 id="stock-input",
                                 placeholder="如：301536 / 中科曙光",
                                 value="301536",
-                                style={"height": "36px"},
+                                style={"height": "32px", "fontSize": "11px"},
                                 className="border-light-subtle",
                             ),
                             dbc.Button("搜索", id="search-btn", color="light", size="sm", 
                                      style={"background": "#7D5BA6", "color": "white", "border": "none"}),
-                        ], size="sm", className="mb-3"),
+                        ], size="sm", className="mb-2"),
                         dbc.ListGroup(id="stock-search-results", className="mb-3 small"),
                         
+                        # 常用股票
+                        dbc.Label("常用股票", className="mb-1 small fw-bold", style={"color": "#4D4B63", "fontSize": "11px"}),
+                        html.Div(id="favorite-stocks-container", className="mb-2"),
+                        
                         # 日期范围
-                        dbc.Label("日期范围", className="mb-1 small fw-bold", style={"color": "#4D4B63"}),
+                        dbc.Label("日期范围", className="mb-1 small fw-bold", style={"color": "#4D4B63", "fontSize": "10px"}),
                         dcc.Dropdown(
                             id="date-range-dropdown",
                             options=utils.generate_date_options(),
-                            value=(datetime.now() - timedelta(days=30)).strftime('%Y-%m-%d') + '至' + datetime.now().strftime('%Y-%m-%d'),
-                            className="mb-3 small",
-                            style={"fontSize": "12px"},
+                            value=(datetime.now() - timedelta(days=60)).strftime('%Y-%m-%d') + '至' + datetime.now().strftime('%Y-%m-%d'),
+                            className="mb-2 small",
+                            style={"fontSize": "10px"},
                         ),
                         
                         # 数据源
@@ -187,8 +346,8 @@ def get_market_layout():
                         # 基本信息
                         html.Div(id="summary-cards", className="mt-3"),
                     ]),
-                ], className="shadow-sm h-100", style={"border": "1px solid #EFEDF5", "background": "#FCFCFE"}),
-            ], width=3, className="pe-0"),  # 左侧列去除右边距
+                ], className="shadow-sm h-100", style={"border": "1px solid #EFEDF5", "background": "#FFFFFF"}),
+            ], width=2, className="pe-0"),  # 左侧列减小宽度并去除右边距
             
             # 右侧主内容
             dbc.Col([
@@ -201,33 +360,23 @@ def get_market_layout():
                         dbc.Card([
                             dbc.CardHeader([
                                 html.Div([
-                                    html.H6("中间价与振幅分析", className="mb-0 d-inline fw-bold", style={"color": "#4D4B63"}),
+                                    # 标题将在回调中动态更新，这里设置默认值
+                                    html.H6(id="chart-title", className="mb-0 d-inline fw-bold", style={"color": "#4D4B63"}),
                                     html.Span(
                                         "(最高价+最低价)/2", 
                                         className="ms-2 small", style={"color": "#8E7E64"}
                                     ),
                                 ], className="d-inline"),
-                                # 添加交互控制按钮组
+                                # 只保留K线图切换开关
                                 html.Div([
-                                    dbc.ButtonGroup([
-                                        dbc.Button("-", id="zoom-out-btn", color="light", className="mx-1 p-1", 
-                                                  size="sm", style={"width": "30px", "height": "30px", "border-radius": "50%"}),
-                                        dbc.Button("+", id="zoom-in-btn", color="light", className="mx-1 p-1", 
-                                                  size="sm", style={"width": "30px", "height": "30px", "border-radius": "50%"}),
-                                        dbc.Button("重置", id="reset-zoom-btn", color="light", className="mx-1 p-1", 
-                                                  size="sm", style={"height": "30px", "font-size": "12px"}),
-                                    ], className="float-end me-2"),
-                                    # 只保留K线图切换开关
-                                    html.Div([
-                                        dbc.Switch(
-                                            id="kline-toggle",
-                                            label="显示K线图",
-                                            value=False,  # 默认关闭
-                                            className="mt-0",
-                                            style={"font-size": "12px"}
-                                        )
-                                    ], className="float-end d-flex")
-                                ]),
+                                    dbc.Switch(
+                                        id="kline-toggle",
+                                        label="显示K线图",
+                                        value=False,  # 默认关闭
+                                        className="mt-0",
+                                        style={"font-size": "12px"}
+                                    )
+                                ], className="float-end")
                             ], className="py-2 border-bottom d-flex justify-content-between", style={"border-left": "3px solid #7D5BA6", "background": "#FCFCFE"}),
                             dbc.CardBody([
                                 html.Div(id="stock-chart-container"),
@@ -247,8 +396,8 @@ def get_market_layout():
                         ], className="mb-3 border shadow-sm", style={"border-radius": "3px", "border": "1px solid #EFEDF5"}),
                     ],
                 ),
-            ], width=9, className="ps-3"),  # 右侧列去除左边距
-        ]),
+            ], width=10, className="ps-3"),  # 右侧列增加宽度并去除左边距
+        ])
     ])
 
 # 回调函数：搜索股票
@@ -319,48 +468,48 @@ def create_summary_cards(df):
     max_amplitude = round(df['amplitude'].max(), 2) if 'amplitude' in df.columns else 0
     min_amplitude = round(df['amplitude'].min(), 2) if 'amplitude' in df.columns else 0
     
-    # 创建卡片
+    # 创建卡片 - 使用更小的字体和更紧凑的布局
     return html.Div([
         dbc.Row([
             dbc.Col([
                 dbc.Card([
                     dbc.CardBody([
-                        html.H6("最新价", className="card-subtitle text-muted small mb-1"),
-                        html.H5(f"¥{latest_price:.2f}", className="card-title mb-0 text-primary"),
-                        html.P(latest_date, className="card-text small text-muted mt-1 mb-0"),
-                    ], className="p-2"),
-                ], className="mb-2 border shadow-sm"),
+                        html.Div("最新价", className="text-muted small mb-0", style={'fontSize': '0.7rem'}),
+                        html.Div(f"¥{latest_price:.2f}", className="text-primary", style={'fontSize': '0.9rem', 'fontWeight': 'bold'}),
+                        html.Div(latest_date, className="text-muted", style={'fontSize': '0.65rem'}),
+                    ], className="p-1"),
+                ], className="mb-1 border shadow-sm"),
             ], width=6),
             dbc.Col([
                 dbc.Card([
                     dbc.CardBody([
-                        html.H6("中间价", className="card-subtitle text-muted small mb-1"),
-                        html.H5(f"¥{mid_price:.2f}", className="card-title mb-0 text-success"),
-                        html.P("(最高+最低)/2", className="card-text small text-muted mt-1 mb-0"),
-                    ], className="p-2"),
-                ], className="mb-2 border shadow-sm"),
+                        html.Div("中间价", className="text-muted small mb-0", style={'fontSize': '0.7rem'}),
+                        html.Div(f"¥{mid_price:.2f}", className="text-success", style={'fontSize': '0.9rem', 'fontWeight': 'bold'}),
+                        html.Div("(最高+最低)/2", className="text-muted", style={'fontSize': '0.65rem'}),
+                    ], className="p-1"),
+                ], className="mb-1 border shadow-sm"),
             ], width=6),
-        ]),
+        ], className="g-1"),  # 减少行间距
         dbc.Row([
             dbc.Col([
                 dbc.Card([
                     dbc.CardBody([
-                        html.H6("平均振幅", className="card-subtitle text-muted small mb-1"),
-                        html.H5(f"{avg_amplitude}%", className="card-title mb-0"),
-                        html.P("区间平均值", className="card-text small text-muted mt-1 mb-0"),
-                    ], className="p-2"),
-                ], className="mb-2 border shadow-sm"),
+                        html.Div("平均振幅", className="text-muted small mb-0", style={'fontSize': '0.7rem'}),
+                        html.Div(f"{avg_amplitude}%", style={'fontSize': '0.9rem', 'fontWeight': 'bold'}),
+                        html.Div("区间平均值", className="text-muted", style={'fontSize': '0.65rem'}),
+                    ], className="p-1"),
+                ], className="mb-1 border shadow-sm"),
             ], width=6),
             dbc.Col([
                 dbc.Card([
                     dbc.CardBody([
-                        html.H6("最大振幅", className="card-subtitle text-muted small mb-1"),
-                        html.H5(f"{max_amplitude}%", className="card-title mb-0 text-danger"),
-                        html.P(f"最小: {min_amplitude}%", className="card-text small text-muted mt-1 mb-0"),
-                    ], className="p-2"),
-                ], className="mb-2 border shadow-sm"),
+                        html.Div("最大振幅", className="text-muted small mb-0", style={'fontSize': '0.7rem'}),
+                        html.Div(f"{max_amplitude}%", className="text-danger", style={'fontSize': '0.9rem', 'fontWeight': 'bold'}),
+                        html.Div(f"最小: {min_amplitude}%", className="text-muted", style={'fontSize': '0.65rem'}),
+                    ], className="p-1"),
+                ], className="mb-1 border shadow-sm"),
             ], width=6),
-        ]),
+        ], className="g-1"),  # 减少行间距
     ])
 
 # 整合查询和缩放功能的回调函数
@@ -371,12 +520,10 @@ def create_summary_cards(df):
         Output("summary-cards", "children"),
         Output("stock-chart-container", "children"),
         Output("alert-container", "children"),
+        Output("chart-title", "children"),
     ],
     [
         Input("query-btn", "n_clicks"),
-        Input("zoom-in-btn", "n_clicks"),
-        Input("zoom-out-btn", "n_clicks"),
-        Input("reset-zoom-btn", "n_clicks"),
         Input('kline-toggle', 'value'),  # 添加K线图切换输入
     ],
     [
@@ -387,18 +534,17 @@ def create_summary_cards(df):
     ],
     prevent_initial_call=True
 )
-def update_chart(query_clicks, zoom_in_clicks, zoom_out_clicks, reset_clicks, kline_toggle,
-                 stock_code, date_range, data_source, stored_data):
+def update_chart(query_clicks, kline_toggle, stock_code, date_range, data_source, stored_data):
     """整合的回调函数，处理查询和缩放功能"""
     ctx = dash.callback_context
     if not ctx.triggered:
-        return dash.no_update, dash.no_update, dash.no_update, dash.no_update, dash.no_updateZHELI
+        return dash.no_update, dash.no_update, dash.no_update, dash.no_update, dash.no_update, dash.no_update
     
     # 获取触发回调的按钮 ID
     triggered_id = ctx.triggered[0]['prop_id'].split('.')[0]
     
-    # 缩放功能 - 如果是缩放按钮且有存储数据
-    if triggered_id in ["zoom-in-btn", "zoom-out-btn", "reset-zoom-btn", "kline-toggle"] and stored_data:
+    # 如果是K线图切换且有存储数据
+    if triggered_id == "kline-toggle" and stored_data:
         # 检查数据结构
         if not isinstance(stored_data, dict) or 'data' not in stored_data:
             return dash.no_update, dash.no_update, dash.no_update, dash.no_update, dash.no_update
@@ -414,25 +560,7 @@ def update_chart(query_clicks, zoom_in_clicks, zoom_out_clicks, reset_clicks, kl
         stock_code = stored_data.get('stock_code', '')
         stock_name = stored_data.get('stock_name', '')
         
-        # 创建调试信息区
-        debug_info = html.Div(
-            id="debug-info",
-            children=[
-                html.Pre(
-                    id="zoom-debug-info",
-                    children=f"当前缩放状态: 原始状态",
-                    style={
-                        "margin": "5px",
-                        "padding": "5px",
-                        "backgroundColor": "#f8f9fa",
-                        "border": "1px solid #ddd",
-                        "borderRadius": "3px",
-                        "fontSize": "12px"
-                    }
-                )
-            ],
-            style={"marginBottom": "10px"}
-        )
+        # 移除旧的调试信息区
         
         # Y轴缩放因子(上下方向)
         zoom_factor = 0.2
@@ -440,56 +568,33 @@ def update_chart(query_clicks, zoom_in_clicks, zoom_out_clicks, reset_clicks, kl
         # 存储当前缩放状态
         y_scale_factor = 1.0  # 默认比例
         
-        # 创建新的图表，传递K线图和MPMI指标显示状态
+        # 创建新的图表，传递K线图显示状态，标题留空（由CardHeader显示）
         chart = visualizer.create_stock_chart(
             df, 
-            f"{stock_name} ({stock_code}) 中间价与振幅分析",
+            None,  # 不再在图表中显示标题，改为在CardHeader中显示
             show_kline=kline_toggle  # 根据开关状态决定是否显示K线图
-            # MPMI指标始终显示，不需要开关控制
         )
         fig = chart.figure
         
-        # 从存储的状态中获取当前缩放状态，如果有的话
+        # 更新存储的数据，我们不再需要缩放状态
         if 'y_scale_factor' in stored_data:
-            y_scale_factor = stored_data['y_scale_factor']
+            del stored_data['y_scale_factor']
         
-        # 处理缩放操作
-        if triggered_id == "zoom-in-btn":
-            # 放大 - 减小Y轴范围
-            y_scale_factor *= (1 - zoom_factor)
-        elif triggered_id == "zoom-out-btn":
-            # 缩小 - 增加Y轴范围
-            y_scale_factor *= (1 + zoom_factor)
-        elif triggered_id == "reset-zoom-btn":
-            # 重置缩放
-            y_scale_factor = 1.0
+        # 创建图表标题（股票名称 + 中间价与振幅分析）
+        chart_title = f"{stock_name} 中间价与振幅分析"
         
-        # 应用缩放
-        if y_scale_factor != 1.0:
-            # 获取当前Y轴范围
-            y_range = fig.layout.yaxis.range
-            if y_range:
-                # 计算中点
-                mid_point = (y_range[0] + y_range[1]) / 2
-                # 计算新范围
-                half_range = (y_range[1] - y_range[0]) / 2 * y_scale_factor
-                # 设置新范围
-                fig.update_layout(yaxis=dict(range=[mid_point - half_range, mid_point + half_range]))
-        
-        # 更新调试信息
-        debug_info.children[0].children = f"当前缩放状态: 比例因子 = {y_scale_factor:.2f}"
-        
-        # 更新存储数据中的缩放状态
-        stored_data['y_scale_factor'] = y_scale_factor
-        
-        # 返回更新后的图表和保持其他输出不变
-        return stored_data, dash.no_update, dash.no_update, dcc.Graph(figure=fig), dash.no_update
+        # 返回结果 - 不再返回debug_info，改为保持alert不变
+        return stored_data, visualizer.create_data_table(df), create_summary_cards(df), dcc.Graph(
+            id='stock-chart', 
+            figure=fig, 
+            config={'displayModeBar': False}
+        ), dash.no_update, chart_title
     
     # 查询功能 - 如果是查询按钮
     elif triggered_id == "query-btn":
         # 验证输入
         if not stock_code:
-            return dash.no_update, dash.no_update, dash.no_update, dash.no_update, dbc.Alert("请输入股票代码或名称", color="warning", dismissable=True)
+            return dash.no_update, dash.no_update, dash.no_update, dash.no_update, dbc.Alert("请输入股票代码或名称", color="warning", dismissable=True), dash.no_update
         
         # 解析股票输入
         input_type, value = utils.parse_stock_input(stock_code)
@@ -502,7 +607,7 @@ def update_chart(query_clicks, zoom_in_clicks, zoom_out_clicks, reset_clicks, kl
             df, stock_info = data_fetcher.get_stock_data(value, start_date, end_date, data_source)
             
             if df.empty:
-                return dash.no_update, dash.no_update, dash.no_update, dash.no_update, dbc.Alert("未找到股票数据", color="warning", dismissable=True)
+                return dash.no_update, dash.no_update, dash.no_update, dash.no_update, dbc.Alert("未找到股票数据", color="warning", dismissable=True), dash.no_update
             
             # 处理数据
             df = data_processor.process_stock_data(df)
@@ -563,13 +668,74 @@ def update_chart(query_clicks, zoom_in_clicks, zoom_out_clicks, reset_clicks, kl
                 'y_scale_factor': 1.0  # 初始缩放因子
             }
             
-            return stored_data, table, summary, dcc.Graph(figure=chart.figure), html.Div(alerts)
+            # 创建图表标题
+            chart_title = f"{stock_info['name']} 中间价与振幅分析"
+            
+            return stored_data, table, create_summary_cards(df), dcc.Graph(
+                id='stock-chart',
+                figure=chart.figure,
+                config={'displayModeBar': False}
+            ), html.Div(alerts), chart_title
             
         except Exception as e:
             return dash.no_update, dash.no_update, dash.no_update, dash.no_update, dbc.Alert(f"获取数据时出错: {str(e)}", color="danger", dismissable=True)
     
     # 默认返回
-    return dash.no_update, dash.no_update, dash.no_update, dash.no_update, dash.no_update
+    return dash.no_update, dash.no_update, dash.no_update, dash.no_update, dash.no_update, dash.no_update
+
+# 加载常用股票列表并显示在界面上
+@app.callback(
+    Output("favorite-stocks-container", "children"),
+    Input("tabs", "active_tab")
+)
+def load_favorite_stocks_ui(active_tab):
+    if active_tab != "market-tab":
+        return dash.no_update
+    
+    # 从utils加载常用股票列表
+    favorites = utils.load_favorite_stocks()
+    
+    # 创建常用股票按钮
+    buttons = []
+    for stock in favorites:
+        buttons.append(
+            dbc.Button(
+                stock["name"],  # 显示股票名称
+                id={"type": "favorite-stock-btn", "index": stock["code"]},
+                color="light",
+                size="sm",
+                className="me-1 mb-1",
+                style={
+                    "fontSize": "10px", 
+                    "padding": "2px 5px", 
+                    "backgroundColor": "#f0f0f5", 
+                    "color": "#4D4B63", 
+                    "border": "1px solid #e0e0eb"
+                }
+            )
+        )
+    
+    # 将按钮包装在一个Div中返回
+    return html.Div(buttons, className="d-flex flex-wrap")
+
+# 处理点击常用股票按钮的回调
+@app.callback(
+    Output("stock-input", "value", allow_duplicate=True),
+    Input({"type": "favorite-stock-btn", "index": dash.ALL}, "n_clicks"),
+    prevent_initial_call=True
+)
+def on_favorite_stock_click(n_clicks):
+    # 获取触发回调的按钮
+    ctx = dash.callback_context
+    if not ctx.triggered:
+        return dash.no_update
+    
+    # 获取按钮ID
+    button_id = ctx.triggered[0]['prop_id'].split('.')[0]
+    stock_code = json.loads(button_id)["index"]
+    
+    # 返回股票代码填充到输入框
+    return stock_code
 
 # 添加全局错误处理
 @app.callback(

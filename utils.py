@@ -1,10 +1,50 @@
 """
 工具函数模块 - 提供辅助功能
 """
+import os
+import json
 import pandas as pd
 import numpy as np
 from datetime import datetime, timedelta
 import re
+
+
+def load_favorite_stocks():
+    """
+    从文件加载常用股票列表
+    
+    Returns:
+    --------
+    list : 包含股票代码和名称的字典列表
+    """
+    try:
+        with open('favorite_stocks.json', 'r', encoding='utf-8') as f:
+            data = json.load(f)
+            return data.get('favorites', [])
+    except (FileNotFoundError, json.JSONDecodeError):
+        # 默认常用股票
+        default_favorites = [
+            {"code": "603019", "name": "中科曙光"},
+            {"code": "600161", "name": "天坛生物"},
+            {"code": "002261", "name": "拓维信息"},
+            {"code": "000977", "name": "浪潮信息"},
+            {"code": "301536", "name": "星宸科技"}
+        ]
+        save_favorite_stocks(default_favorites)
+        return default_favorites
+
+
+def save_favorite_stocks(favorites):
+    """
+    保存常用股票列表到文件
+    
+    Parameters:
+    -----------
+    favorites : list
+        包含股票代码和名称的字典列表
+    """
+    with open('favorite_stocks.json', 'w', encoding='utf-8') as f:
+        json.dump({"favorites": favorites}, f, ensure_ascii=False, indent=4)
 
 
 def is_valid_stock_code(code):
@@ -208,18 +248,67 @@ def parse_stock_input(input_text):
     --------
     tuple : (代码类型, 代码或名称)
     """
-    input_text = input_text.strip()
+    input_text = str(input_text).strip()
     
-    # 检查是否为有效股票代码
+    # 检查是否为股票代码格式
     if is_valid_stock_code(input_text):
         return 'code', format_stock_code(input_text)
     
-    # 检查是否包含股票代码（如：中科曙光(301536)）
-    code_pattern = r'.*?\(?([0-9]{6})\)?'
-    match = re.search(code_pattern, input_text)
-    if match:
-        code = match.group(1)
-        return 'code', format_stock_code(code)
+    # 如果包含数字，也视为代码，但不做格式化
+    if any(c.isdigit() for c in input_text):
+        return 'code', input_text
     
     # 否则视为股票名称
     return 'name', input_text
+
+
+def load_favorite_stocks():
+    """
+    从文件加载常用股票列表
+    
+    Returns:
+    --------
+    list : 常用股票列表，每个股票为包含code和name的字典
+    """
+    try:
+        file_path = os.path.join(os.getcwd(), 'favorite_stocks.json')
+        if not os.path.exists(file_path):
+            # 如果文件不存在，返回默认列表
+            return [
+                {'code': '603019', 'name': '中科曙光'},
+                {'code': '600161', 'name': '天坛生物'},
+                {'code': '002261', 'name': '拓维信息'},
+                {'code': '000977', 'name': '浪潮信息'},
+                {'code': '301536', 'name': '星宸科技'}
+            ]
+        
+        with open(file_path, 'r', encoding='utf-8') as f:
+            data = json.load(f)
+            return data.get('favorites', [])
+    except Exception as e:
+        print(f'加载常用股票时出错: {str(e)}')
+        # 出错时返回空列表
+        return []
+
+
+def save_favorite_stocks(favorites):
+    """
+    保存常用股票列表到文件
+    
+    Parameters:
+    -----------
+    favorites : list
+        常用股票列表，每个股票为包含code和name的字典
+        
+    Returns:
+    --------
+    bool : 保存是否成功
+    """
+    try:
+        file_path = os.path.join(os.getcwd(), 'favorite_stocks.json')
+        with open(file_path, 'w', encoding='utf-8') as f:
+            json.dump({'favorites': favorites}, f, ensure_ascii=False, indent=4)
+        return True
+    except Exception as e:
+        print(f'保存常用股票时出错: {str(e)}')
+        return False

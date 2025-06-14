@@ -55,13 +55,17 @@ class DataProcessor:
         # 添加历史区间突破标记
         df = self.mark_breakouts(df)
         
-        # 计算中间价动量指标(MPMI)
-        df = self.calculate_mpmi(df)
+        # 计算增强振幅指标
+        df = self.calculate_enhanced_amplitude(df)
+        
+        # 计算增强中间价-开盘价差值指标
+        df = self.calculate_enhanced_open_mid_diff(df)
         
         # 确保所有列的数据类型正确
         numeric_cols = ['open', 'high', 'low', 'close', 'mid_price', 
                         'amplitude', 'rel_amplitude', 'mid_upper', 'mid_lower',
-                        'mpmi', 'mpmi_signal', 'mpmi_hist', 'open_mid_diff']
+                        'amplitude_ma', 'amplitude_percentile', 'open_mid_diff',
+                        'open_mid_diff_ma', 'open_mid_diff_percentile']
         for col in numeric_cols:
             if col in df.columns:
                 df[col] = pd.to_numeric(df[col], errors='coerce')
@@ -200,57 +204,124 @@ class DataProcessor:
             
         return df
         
-    def calculate_mpmi(self, df, short_period=12, long_period=26, signal_period=9):
+    def calculate_enhanced_amplitude(self, df, ma_period=10, window=20, percentiles=[20, 50, 80]):
         """
-        计算中间价动量指标(Mid-Price Momentum Indicator, MPMI)
-        类似于MACD，但基于中间价而非收盘价
+        计算增强振幅指标，包括振幅的移动平均和历史百分位数
         
         Parameters:
         -----------
         df : pd.DataFrame
-            股票数据，需包含'mid_price'列
-        short_period : int
-            短期EMA周期，默认12
-        long_period : int
-            长期EMA周期，默认26
-        signal_period : int
-            信号线EMA周期，默认9
+            股票数据，需包含'amplitude'列
+        ma_period : int
+            移动平均的周期，默认10
+        window : int
+            历史百分位计算的窗口大小，默认20
+        percentiles : list
+            要计算的百分位数，默认[20, 50, 80]
             
         Returns:
         --------
-        pd.DataFrame : 添加了MPMI指标的DataFrame
+        pd.DataFrame : 添加了增强振幅指标的DataFrame
         """
-        if 'mid_price' not in df.columns or df.empty:
+        if 'amplitude' not in df.columns or df.empty:
             return df
         
-        # 确保中间价已计算
-        if 'mid_price' not in df.columns:
-            df['mid_price'] = (df['high'] + df['low']) / 2
-            
-        # 短期EMA
-        df['mid_short_ema'] = df['mid_price'].ewm(span=short_period, adjust=False).mean()
-        # 长期EMA
-        df['mid_long_ema'] = df['mid_price'].ewm(span=long_period, adjust=False).mean()
-        # MPMI线(DIF) - 类似MACD的DIF线
-        df['mpmi'] = df['mid_short_ema'] - df['mid_long_ema']
-        # 信号线(DEA) - 类似MACD的DEA线
-        df['mpmi_signal'] = df['mpmi'].ewm(span=signal_period, adjust=False).mean()
-        # 柱状图(MACD) - 类似MACD的柱状图
-        df['mpmi_hist'] = df['mpmi'] - df['mpmi_signal']
+        # 计算振幅的移动平均
+        df['amplitude_ma'] = df['amplitude'].rolling(window=ma_period).mean()
         
-        # 添加金叉银叉标记
-        df['mpmi_golden_cross'] = False
-        df['mpmi_death_cross'] = False
-        
+        # 计算ATR (Average True Range)
+        # 定义真实范围
+        df['true_range'] = 0.0
         for i in range(1, len(df)):
-            # 金叉：前一天MPMI < 信号线，当天MPMI > 信号线
-            if df['mpmi'].iloc[i-1] < df['mpmi_signal'].iloc[i-1] and \
-               df['mpmi'].iloc[i] > df['mpmi_signal'].iloc[i]:
-                df.loc[df.index[i], 'mpmi_golden_cross'] = True
-                
-            # 银叉：前一天MPMI > 信号线，当天MPMI < 信号线
-            if df['mpmi'].iloc[i-1] > df['mpmi_signal'].iloc[i-1] and \
-               df['mpmi'].iloc[i] < df['mpmi_signal'].iloc[i]:
-                df.loc[df.index[i], 'mpmi_death_cross'] = True
-                
+            true_range = max(
+                df['high'].iloc[i] - df['low'].iloc[i],  # 当日高低差
+                abs(df['high'].iloc[i] - df['close'].iloc[i-1]),  # 当日最高与前日收盘差
+                abs(df['low'].iloc[i] - df['close'].iloc[i-1])   # 当日最低与前日收盘差
+            )
+            df.loc[df.index[i], 'true_range'] = true_range
+        
+        # 计算ATR（使用简单移动平均）
+        df['atr'] = df['true_range'].rolling(window=ma_period).mean()
+        
+        # 计算ATR变化率
+        df['atr_change'] = df['atr'].pct_change() * 100
+        
+        # 计算振幅的历史百分位
+        df = self.calculate_historic_percentiles(df, 'amplitude', window)
+        
+        # 计算各百分位线
+        for percentile in percentiles:
+            col_name = f'amplitude_p{percentile}'
+            df[col_name] = np.nan
+            
+            for i in range(window, len(df)):
+                hist_values = df['amplitude'].iloc[i-window:i].dropna()
+                if len(hist_values) > 0:
+                    df.loc[df.index[i], col_name] = np.percentile(hist_values, percentile)
+        
+        # 计算振幅Z分数
+        df['amplitude_zscore'] = np.nan
+        for i in range(window, len(df)):
+            hist_values = df['amplitude'].iloc[i-window:i].dropna()
+            if len(hist_values) > 0:
+                mean = hist_values.mean()
+                std = hist_values.std()
+                if std > 0:  # 避免除零
+                    current_value = df['amplitude'].iloc[i]
+                    df.loc[df.index[i], 'amplitude_zscore'] = (current_value - mean) / std
+        
+        return df
+        
+    def calculate_enhanced_open_mid_diff(self, df, ma_period=5, window=20, percentiles=[20, 50, 80]):
+        """
+        计算增强的中间价与开盘价差值指标，包括移动平均和历史百分位数
+        
+        Parameters:
+        -----------
+        df : pd.DataFrame
+            股票数据，需包含'open_mid_diff'列
+        ma_period : int
+            移动平均的周期，默认5
+        window : int
+            历史百分位计算的窗口大小，默认20
+        percentiles : list
+            要计算的百分位数，默认[20, 50, 80]
+            
+        Returns:
+        --------
+        pd.DataFrame : 添加了增强中间价与开盘价差值指标的DataFrame
+        """
+        if 'open_mid_diff' not in df.columns or df.empty:
+            return df
+        
+        # 计算差值的移动平均
+        df['open_mid_diff_ma'] = df['open_mid_diff'].rolling(window=ma_period).mean()
+        
+        # 计算差值的累积和（近N日）
+        df['open_mid_diff_cum'] = df['open_mid_diff'].rolling(window=ma_period).sum()
+        
+        # 计算差值的历史百分位
+        df = self.calculate_historic_percentiles(df, 'open_mid_diff', window)
+        
+        # 计算各百分位线
+        for percentile in percentiles:
+            col_name = f'open_mid_diff_p{percentile}'
+            df[col_name] = np.nan
+            
+            for i in range(window, len(df)):
+                hist_values = df['open_mid_diff'].iloc[i-window:i].dropna()
+                if len(hist_values) > 0:
+                    df.loc[df.index[i], col_name] = np.percentile(hist_values, percentile)
+        
+        # 计算差值Z分数
+        df['open_mid_diff_zscore'] = np.nan
+        for i in range(window, len(df)):
+            hist_values = df['open_mid_diff'].iloc[i-window:i].dropna()
+            if len(hist_values) > 0:
+                mean = hist_values.mean()
+                std = hist_values.std()
+                if std > 0:  # 避免除零
+                    current_value = df['open_mid_diff'].iloc[i]
+                    df.loc[df.index[i], 'open_mid_diff_zscore'] = (current_value - mean) / std
+        
         return df

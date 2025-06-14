@@ -14,7 +14,7 @@ class Visualizer:
         
     def create_stock_chart(self, df, title=None, show_kline=False):
         """
-        创建股票图表，包含中间价、振幅和成交量，始终显示MPMI指标
+        创建股票图表，包含中间价、振幅和成交量，显示增强振幅指标和中间价-开盘价差值指标
         
         Args:
             df: 股票数据框架
@@ -47,21 +47,16 @@ class Visualizer:
         df['display_date'] = df['date']  # 保存真实日期用于显示
         df['date'] = range(len(df))  # 将日期列替换为序号，确保连续性
         
-        # 所有情况下始终都显示成交量和MPMI指标
+        # 所有情况下始终都显示成交量、增强振幅指标和中间价-开盘价差值指标
         # 根据参数决定子图行数及高度
-        # MPMI始终显示为第二行
-        # 新增开盘价与中间价差值图表
         if show_kline:
-            rows = 5  # K线图+中间价重叠, MPMI指标, 开盘价与中间价差值, 振幅, 成交量
+            rows = 5  # K线图+中间价重叠, 增强振幅指标, 中间价-开盘价差值, ATR, 成交量
             row_heights = [0.4, 0.15, 0.15, 0.15, 0.15]  
-            subplot_titles = ("", "中间价动量指标(MPMI)", "开盘价与中间价差值(%)", "", "")  
+            subplot_titles = ("", "增强振幅指标(%)", "中间价-开盘价差值(%)", "ATR指标", "")  
         else:
-            rows = 5  # 中间价, MPMI指标, 开盘价与中间价差值, 振幅, 成交量
+            rows = 5  # 中间价, 增强振幅指标, 中间价-开盘价差值, ATR, 成交量
             row_heights = [0.4, 0.15, 0.15, 0.15, 0.15]  
-            subplot_titles = ("", "中间价动量指标(MPMI)", "开盘价与中间价差值(%)", "", "")  
-        
-        # 定义show_mpmi变量为True，保证MPMI始终显示
-        show_mpmi = True
+            subplot_titles = ("", "增强振幅指标(%)", "中间价-开盘价差值(%)", "ATR指标", "")
         
         # 创建子图规格，确保每行都支持secondary_y
         specs = []
@@ -78,20 +73,15 @@ class Visualizer:
             subplot_titles=subplot_titles,
             specs=specs
         )
+        # 移除主标题，因为我们已经在卡片标题中显示了股票名称和分析类型
+        fig.update_layout(title=None)
         
-        # 初始化行索引，根据子图数量调整行号
-        price_row = 1      # 第一行始终显示股价(中间价或K线图+中间价)
-        
-        # 根据是否显示MPMI来调整其他行
-        if show_mpmi:
-            mpmi_row = 2       # 如果显示MPMI，它在第二行
-            open_mid_diff_row = 3  # 开盘价与中间价差值在第三行
-            amplitude_row = 4   # 振幅移到第四行
-            volume_row = 5      # 成交量移到第五行
-        else:
-            open_mid_diff_row = 2  # 开盘价与中间价差值在第二行
-            amplitude_row = 3   # 振幅在第三行
-            volume_row = 4      # 成交量在第四行
+        # 初始化行索引，固定行号分配
+        price_row = 1       # 第一行始终显示股价(中间价或K线图+中间价)
+        amplitude_row = 2    # 第二行显示振幅指标
+        open_mid_diff_row = 3  # 第三行显示中间价-开盘价差值
+        atr_row = 4         # 第四行显示ATR指标
+        volume_row = 5      # 第五行显示成交量
         
         # 1. 绘制K线图和中间价在同一行显示
         
@@ -238,117 +228,104 @@ class Visualizer:
         
         # 中间价已经在前面绘制完成，这里不再重复绘制
         
-        # 2.5 如果启用MPMI指标，添加MPMI指标图表
-        if show_mpmi and 'mpmi' in df.columns and 'mpmi_signal' in df.columns and 'mpmi_hist' in df.columns:
-            # 添加MPMI线(类似MACD的DIF线)
-            fig.add_trace(
-                go.Scatter(
-                    x=df['date'],
-                    y=df['mpmi'],
-                    mode='lines',
-                    name="MPMI线",
-                    line=dict(width=3.0, color='rgb(0, 255, 0)'),  # 荧光绿
-                    hoverinfo='text',
-                    hovertext=[f"日期: {d.strftime('%Y-%m-%d') if isinstance(d, pd.Timestamp) else d}<br>MPMI线: {v:.4f}" 
-                              for d, v in zip(df['display_date'], df['mpmi'])],
-                ),
-                row=mpmi_row, col=1
-            )
-            
-            # 添加信号线(类似MACD的DEA线)
-            fig.add_trace(
-                go.Scatter(
-                    x=df['date'],
-                    y=df['mpmi_signal'],
-                    mode='lines',
-                    name="信号线",
-                    line=dict(width=3.0, color='rgb(255, 255, 0)'),  # 荧光黄
-                    hoverinfo='text',
-                    hovertext=[f"日期: {d.strftime('%Y-%m-%d') if isinstance(d, pd.Timestamp) else d}<br>信号线: {v:.4f}" 
-                              for d, v in zip(df['display_date'], df['mpmi_signal'])],
-                ),
-                row=mpmi_row, col=1
-            )
-            
-            # 添加柱状图 - 使用红绿颜色区分正负值
+        # 2.5 添加增强振幅指标图表
+        if 'amplitude' in df.columns and 'amplitude_ma' in df.columns:
+            # 添加厚线条形图显示原始振幅数据
             colors = []
-            for val in df['mpmi_hist']:
+            for val in df['amplitude']:
                 if val >= 0:
                     colors.append('rgba(255, 99, 71, 0.7)')  # 红色为正值
                 else:
                     colors.append('rgba(50, 205, 50, 0.7)')  # 绿色为负值
-                    
+            
             fig.add_trace(
                 go.Bar(
                     x=df['date'],
-                    y=df['mpmi_hist'],
-                    name="MPMI柱状图",
+                    y=df['amplitude'],
+                    name="振幅(%)",
                     marker_color=colors,
                     opacity=0.7,
+                    customdata=hover_data,
+                    hovertemplate="<b>%{customdata[0]}</b><br>"
+                                 "振幅: %{y:.2f}%<br>"
                 ),
-                row=mpmi_row, col=1
+                row=amplitude_row, col=1
             )
             
-            # 添加金叉和银叉标记
-            golden_cross_dates = df[df['mpmi_golden_cross'] == True]['date']
-            golden_cross_values = df.loc[df['mpmi_golden_cross'] == True, 'mpmi']
-            
-            death_cross_dates = df[df['mpmi_death_cross'] == True]['date']
-            death_cross_values = df.loc[df['mpmi_death_cross'] == True, 'mpmi']
-            
-            # 添加金叉标记(上穿)
-            if not golden_cross_dates.empty:
-                fig.add_trace(
-                    go.Scatter(
-                        x=golden_cross_dates,
-                        y=golden_cross_values,
-                        mode='markers',
-                        name="金叉",
-                        marker=dict(symbol='star', size=10, color='gold', line=dict(width=1, color='black')),
-                        hoverinfo='text',
-                        hovertext=[f"金叉: {d.strftime('%Y-%m-%d') if isinstance(d, pd.Timestamp) else d}" 
-                                  for d in df.loc[df['mpmi_golden_cross'] == True, 'display_date']],
-                    ),
-                    row=mpmi_row, col=1
-                )
-            
-            # 添加银叉标记(下穿)
-            if not death_cross_dates.empty:
-                fig.add_trace(
-                    go.Scatter(
-                        x=death_cross_dates,
-                        y=death_cross_values,
-                        mode='markers',
-                        name="银叉",
-                        marker=dict(symbol='cross', size=10, color='silver', line=dict(width=1, color='black')),
-                        hoverinfo='text',
-                        hovertext=[f"银叉: {d.strftime('%Y-%m-%d') if isinstance(d, pd.Timestamp) else d}" 
-                                  for d in df.loc[df['mpmi_death_cross'] == True, 'display_date']],
-                    ),
-                    row=mpmi_row, col=1
-                )
-            
-            # 添加零线参考线
-            fig.add_shape(
-                type="line",
-                x0=df['date'].min(),
-                y0=0,
-                x1=df['date'].max(),
-                y1=0,
-                line=dict(color="rgba(0,0,0,0.3)", width=1, dash="dash"),
-                row=mpmi_row, col=1
+            # 添加振幅移动平均线
+            fig.add_trace(
+                go.Scatter(
+                    x=df['date'],
+                    y=df['amplitude_ma'],
+                    mode='lines',
+                    name="振幅移动平均",
+                    line=dict(width=2, color='rgba(30, 144, 255, 0.8)'),
+                    hoverinfo='text',
+                    hovertext=[f"日期: {d.strftime('%Y-%m-%d') if isinstance(d, pd.Timestamp) else d}<br>振幅MA: {v:.2f}%" 
+                              for d, v in zip(df['display_date'], df['amplitude_ma'])],
+                ),
+                row=amplitude_row, col=1
             )
             
-            # 设置MPMI图表Y轴标题
+            # 如果有振幅百分位等级数据，添加百分位线
+            if 'amplitude_p75' in df.columns and 'amplitude_p90' in df.columns:
+                # 添加P75百分位线
+                fig.add_trace(
+                    go.Scatter(
+                        x=df['date'],
+                        y=df['amplitude_p75'],
+                        mode='lines',
+                        name="75百分位",
+                        line=dict(width=1.5, color='rgba(255, 165, 0, 0.6)', dash='dot'),
+                    ),
+                    row=amplitude_row, col=1
+                )
+                
+                # 添加P90百分位线
+                fig.add_trace(
+                    go.Scatter(
+                        x=df['date'],
+                        y=df['amplitude_p90'],
+                        mode='lines',
+                        name="90百分位",
+                        line=dict(width=1.5, color='rgba(255, 0, 0, 0.6)', dash='dot'),
+                    ),
+                    row=amplitude_row, col=1
+                )
+            
+            # 添加异常振幅标记（如果有异常数据）
+            if 'amplitude_zscore' in df.columns:
+                abnormal_dates = df[df['amplitude_zscore'] > 2]['date']  # Z分数超过2的点作为异常点
+                abnormal_values = df.loc[df['amplitude_zscore'] > 2, 'amplitude']
+                
+                if not abnormal_dates.empty:
+                    fig.add_trace(
+                        go.Scatter(
+                            x=abnormal_dates,
+                            y=abnormal_values,
+                            mode='markers',
+                            name="异常振幅",
+                            marker=dict(symbol='circle', size=9, color='purple', line=dict(width=1, color='black')),
+                            hoverinfo='text',
+                            hovertext=[f"异常振幅: {d.strftime('%Y-%m-%d') if isinstance(d, pd.Timestamp) else d}<br>"
+                                      f"振幅: {v:.2f}%<br>Z分数: {z:.2f}" 
+                                     for d, v, z in zip(df.loc[df['amplitude_zscore'] > 2, 'display_date'], 
+                                                     abnormal_values, 
+                                                     df.loc[df['amplitude_zscore'] > 2, 'amplitude_zscore'])],
+                        ),
+                        row=amplitude_row, col=1
+                    )
+            
+            # 设置振幅图表Y轴标题
             fig.update_yaxes(
-                title_text="MPMI",
+                title_text="振幅(%)",
                 title_standoff=0,
                 title_font=dict(size=14),
                 side="left",
-                row=mpmi_row, col=1
+                row=amplitude_row, col=1
             )
         
-        # 3. 添加开盘价与中间价差值图表
+        # 3. 添加中间价-开盘价差值图表 (增强版)
         if 'open_mid_diff' in df.columns:
             # 为差值百分比创建柱状图，使用红绿颜色区分正负值
             colors = []
@@ -363,7 +340,7 @@ class Visualizer:
                 go.Bar(
                     x=df['date'],
                     y=df['open_mid_diff'],
-                    name="开盘价与中间价差值(%)",
+                    name="中间价-开盘价差值(%)",
                     marker_color=colors,
                     opacity=0.9,
                     customdata=hover_data,
@@ -375,6 +352,94 @@ class Visualizer:
                 row=open_mid_diff_row, col=1
             )
             
+            # 添加移动平均线 (如果存在)
+            if 'open_mid_diff_ma' in df.columns:
+                fig.add_trace(
+                    go.Scatter(
+                        x=df['date'],
+                        y=df['open_mid_diff_ma'],
+                        mode='lines',
+                        name="差值移动平均",
+                        line=dict(width=2, color='rgba(30, 144, 255, 0.8)'),
+                        hoverinfo='text',
+                        hovertext=[f"日期: {d.strftime('%Y-%m-%d') if isinstance(d, pd.Timestamp) else d}<br>差值 MA: {v:.2f}%" 
+                                  for d, v in zip(df['display_date'], df['open_mid_diff_ma'])],
+                    ),
+                    row=open_mid_diff_row, col=1
+                )
+            
+            # 添加百分位线 (如果存在)
+            if 'open_mid_diff_p25' in df.columns and 'open_mid_diff_p75' in df.columns:
+                # 添加P25百分位线
+                fig.add_trace(
+                    go.Scatter(
+                        x=df['date'],
+                        y=df['open_mid_diff_p25'],
+                        mode='lines',
+                        name="25百分位",
+                        line=dict(width=1.5, color='rgba(0, 128, 0, 0.6)', dash='dot'),
+                    ),
+                    row=open_mid_diff_row, col=1
+                )
+                
+                # 添加P75百分位线
+                fig.add_trace(
+                    go.Scatter(
+                        x=df['date'],
+                        y=df['open_mid_diff_p75'],
+                        mode='lines',
+                        name="75百分位",
+                        line=dict(width=1.5, color='rgba(255, 165, 0, 0.6)', dash='dot'),
+                    ),
+                    row=open_mid_diff_row, col=1
+                )
+            
+            # 添加异常差值标记（如果有Z分数列）
+            if 'open_mid_diff_zscore' in df.columns:
+                # 正向异常（正Z分数超过2）
+                pos_abnormal_dates = df[df['open_mid_diff_zscore'] > 2]['date']
+                pos_abnormal_values = df.loc[df['open_mid_diff_zscore'] > 2, 'open_mid_diff']
+                
+                # 负向异常（负Z分数超过2）
+                neg_abnormal_dates = df[df['open_mid_diff_zscore'] < -2]['date']
+                neg_abnormal_values = df.loc[df['open_mid_diff_zscore'] < -2, 'open_mid_diff']
+                
+                if not pos_abnormal_dates.empty:
+                    fig.add_trace(
+                        go.Scatter(
+                            x=pos_abnormal_dates,
+                            y=pos_abnormal_values,
+                            mode='markers',
+                            name="正向异常差值",
+                            marker=dict(symbol='triangle-up', size=9, color='red', line=dict(width=1, color='black')),
+                            hoverinfo='text',
+                            hovertext=[f"正向异常: {d.strftime('%Y-%m-%d') if isinstance(d, pd.Timestamp) else d}<br>"
+                                      f"差值: {v:.2f}%<br>Z分数: {z:.2f}" 
+                                      for d, v, z in zip(df.loc[df['open_mid_diff_zscore'] > 2, 'display_date'], 
+                                                      pos_abnormal_values, 
+                                                      df.loc[df['open_mid_diff_zscore'] > 2, 'open_mid_diff_zscore'])],
+                        ),
+                        row=open_mid_diff_row, col=1
+                    )
+                
+                if not neg_abnormal_dates.empty:
+                    fig.add_trace(
+                        go.Scatter(
+                            x=neg_abnormal_dates,
+                            y=neg_abnormal_values,
+                            mode='markers',
+                            name="负向异常差值",
+                            marker=dict(symbol='triangle-down', size=9, color='green', line=dict(width=1, color='black')),
+                            hoverinfo='text',
+                            hovertext=[f"负向异常: {d.strftime('%Y-%m-%d') if isinstance(d, pd.Timestamp) else d}<br>"
+                                      f"差值: {v:.2f}%<br>Z分数: {z:.2f}" 
+                                      for d, v, z in zip(df.loc[df['open_mid_diff_zscore'] < -2, 'display_date'], 
+                                                      neg_abnormal_values, 
+                                                      df.loc[df['open_mid_diff_zscore'] < -2, 'open_mid_diff_zscore'])],
+                        ),
+                        row=open_mid_diff_row, col=1
+                    )
+            
             # 添加零线参考线
             fig.add_shape(
                 type="line",
@@ -384,6 +449,67 @@ class Visualizer:
                 y1=0,
                 line=dict(color="rgba(0,0,0,0.3)", width=1, dash="dash"),
                 row=open_mid_diff_row, col=1
+            )
+            
+        # 4. 添加ATR指标图表
+        if 'atr' in df.columns:
+            # 添加ATR线
+            fig.add_trace(
+                go.Scatter(
+                    x=df['date'],
+                    y=df['atr'],
+                    mode='lines',
+                    name="ATR",
+                    line=dict(width=2, color='rgba(255, 140, 0, 0.8)'),  # 深橙色
+                    hoverinfo='text',
+                    hovertext=[f"日期: {d.strftime('%Y-%m-%d') if isinstance(d, pd.Timestamp) else d}<br>ATR: {v:.4f}" 
+                              for d, v in zip(df['display_date'], df['atr'])],
+                ),
+                row=atr_row, col=1
+            )
+            
+            # 添加ATR变化率（如果存在）
+            if 'atr_change_rate' in df.columns:
+                # 为ATR变化率创建柱状图，使用红绿颜色区分正负值
+                colors = []
+                for val in df['atr_change_rate']:
+                    if val >= 0:
+                        colors.append('rgba(255, 99, 71, 0.7)')  # 红色为正值（ATR增加）
+                    else:
+                        colors.append('rgba(50, 205, 50, 0.7)')  # 绿色为负值（ATR减少）
+                
+                fig.add_trace(
+                    go.Bar(
+                        x=df['date'],
+                        y=df['atr_change_rate'],
+                        name="ATR变化率(%)",
+                        marker_color=colors,
+                        opacity=0.7,
+                        hoverinfo='text',
+                        hovertext=[f"日期: {d.strftime('%Y-%m-%d') if isinstance(d, pd.Timestamp) else d}<br>ATR变化率: {v:.2f}%" 
+                                  for d, v in zip(df['display_date'], df['atr_change_rate'])],
+                    ),
+                    row=atr_row, col=1,
+                    secondary_y=True
+                )
+                
+                # 设置次坐标轴标题
+                fig.update_yaxes(
+                    title_text="ATR变化率(%)",
+                    title_standoff=0,
+                    title_font=dict(size=14),
+                    side="right",
+                    row=atr_row, col=1,
+                    secondary_y=True
+                )
+            
+            # 设置ATR图表Y轴标题
+            fig.update_yaxes(
+                title_text="ATR",
+                title_standoff=0,
+                title_font=dict(size=14),
+                side="left",
+                row=atr_row, col=1
             )
             
             # 设置图表Y轴标题
@@ -435,21 +561,14 @@ class Visualizer:
         
         # 优化图表布局
         fig.update_layout(
-            title={
-                'text': title or "股票价格分析",
-                'font': dict(size=18),
-                'y': 0.95,
-                'x': 0.5,
-                'xanchor': 'center',
-                'yanchor': 'top'
-            },
+            title=None,  # 移除标题，因为我们已经在卡片标题中显示了股票名称和分析类型
             xaxis_title=None,
             yaxis_title="价格(元)",
             xaxis_rangeslider_visible=False,  # 隐藏K线图下方的滑动条
             plot_bgcolor='white',  # 白色背景
             paper_bgcolor='white',
             height=800,  # 增加高度以容纳所有子图
-            margin=dict(l=80, r=50, t=100, b=50),  # 增加左侧边距以容纳标签
+            margin=dict(l=80, r=50, t=30, b=50),  # 减小顶部间距
             showlegend=True,
             legend=dict(
                 orientation="h",
@@ -660,7 +779,7 @@ class Visualizer:
         ])
     
     def create_summary_cards(self, df, strategy_results=None):
-        """创建数据摘要卡片"""
+        """创建数据摘要卡片、使用较小字体和紧凑布局"""
         if df.empty:
             return html.Div("无数据摘要")
         
@@ -670,14 +789,30 @@ class Visualizer:
         latest_data = df.iloc[-1]
         latest_price = latest_data['close']
         latest_date = latest_data['date']
-        
+        # 如果存在前一天数据，计算价格变化
+        if len(df) > 1:
+            prev_data = df.iloc[-2]
+            price_change = latest_price - prev_data['close']
+            price_change_percent = price_change / prev_data['close'] * 100
+            price_color = "text-danger" if price_change >= 0 else "text-success"
+            diff_sign = "+" if price_change > 0 else ""
+        else:
+            price_change = 0
+            price_change_percent = 0
+            price_color = "text-primary"
+            diff_sign = ""
+
         cards.append(
             dbc.Card(
                 dbc.CardBody([
-                    html.H5("最新价格", className="card-title"),
-                    html.H3(f"¥{latest_price:.2f}", className="card-text text-primary"),
-                    html.P(f"日期: {latest_date}", className="card-text text-muted"),
-                ]),
+                    html.H5("最新价格", className="card-title small fw-bold mb-1", style={"fontSize": "12px"}),
+                    html.H3(f"¥{latest_price:.2f}", className=f"card-text {price_color} my-1", style={"fontSize": "18px"}),
+                    html.P([
+                        f"{diff_sign}{price_change:.2f} ({diff_sign}{price_change_percent:.2f}%)", 
+                        html.Span(" vs 昨收盘", className="ms-1 small text-muted")
+                    ], className=f"card-text {price_color} mb-1 small", style={"fontSize": "11px"}),
+                    html.P(["日期: ", html.Strong(f"{latest_date}")], className="card-text text-muted mb-0 small", style={"fontSize": "10px"}),
+                ], className="p-2"),
                 className="m-2 shadow"
             )
         )
@@ -691,15 +826,15 @@ class Visualizer:
         cards.append(
             dbc.Card(
                 dbc.CardBody([
-                    html.H5("振幅统计", className="card-title"),
-                    html.H3(f"{avg_amplitude:.2f}%", className="card-text text-info"),
-                    html.P(f"平均振幅", className="card-text text-muted"),
+                    html.H5("振幅统计", className="card-title small fw-bold mb-1", style={"fontSize": "12px"}),
+                    html.H3(f"{avg_amplitude:.2f}%", className="card-text text-info my-1", style={"fontSize": "18px"}),
+                    html.P(f"平均振幅", className="card-text text-muted mb-1 small", style={"fontSize": "11px"}),
                     html.P([
                         f"最大振幅: {max_amplitude:.2f}% (",
                         html.Span(f"{max_amplitude_date}", className="font-weight-bold"),
                         ")"
-                    ], className="card-text"),
-                ]),
+                    ], className="card-text mb-0 small", style={"fontSize": "10px"}),
+                ], className="p-2"),
                 className="m-2 shadow"
             )
         )
@@ -710,9 +845,9 @@ class Visualizer:
             cards.append(
                 dbc.Card(
                     dbc.CardBody([
-                        html.H5("中间价", className="card-title"),
-                        html.H3(f"¥{latest_mid:.2f}", className="card-text text-success"),
-                    ]),
+                        html.H5("中间价", className="card-title small fw-bold mb-1", style={"fontSize": "12px"}),
+                        html.H3(f"¥{latest_mid:.2f}", className="card-text text-success my-1", style={"fontSize": "18px"}),
+                    ], className="p-2"),
                     className="m-2 shadow"
                 )
             )
@@ -729,10 +864,10 @@ class Visualizer:
             cards.append(
                 dbc.Card(
                     dbc.CardBody([
-                        html.H5("开盘价与中间价差值", className="card-title"),
-                        html.H3(f"{diff_sign}{latest_open_mid_diff:.2f}%", className=f"card-text {diff_color}"),
-                        html.P(f"平均差值: {avg_open_mid_diff:.2f}%", className="card-text text-muted"),
-                    ]),
+                        html.H5("开盘价与中间价差值", className="card-title small fw-bold mb-1", style={"fontSize": "12px"}),
+                        html.H3(f"{diff_sign}{latest_open_mid_diff:.2f}%", className=f"card-text {diff_color} my-1", style={"fontSize": "18px"}),
+                        html.P(f"平均差值: {avg_open_mid_diff:.2f}%", className="card-text text-muted mb-0 small", style={"fontSize": "10px"}),
+                    ], className="p-2"),
                     className="m-2 shadow"
                 )
             )
