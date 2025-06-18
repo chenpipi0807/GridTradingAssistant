@@ -18,8 +18,8 @@
 - **数据上传与分析**：可选择性使用当前股票数据进行深度分析
 - **快速问题模板**：提供常用分析问题模板，一键提问快速获取见解
 - **枢纽点策略支持**：支持计算枢纽点和支撑/阻力位，辅助网格交易决策
-  
-![微信截图_20250614132340](https://github.com/user-attachments/assets/ff2f9298-f667-48f1-b166-0e0eeb3fc5d1)
+
+![image](https://github.com/user-attachments/assets/d5abda46-fa8f-4ac5-9f1d-4331b8ffaa56)
 
 ![微信截图_20250615002019](https://github.com/user-attachments/assets/c8b760db-4413-4489-9de0-2c54668debc1)
 
