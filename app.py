@@ -223,6 +223,59 @@ def get_indicators_layout():
                     ])
                 ])),
                 
+                # MPMI指标说明
+                html.H5("MPMI指标 (Mid-Price Momentum Indicator)", className="text-success mt-4 mb-2"),
+                dbc.Card(dbc.CardBody([
+                    html.P("MPMI指标是基于中间价的动量指标，类似于MACD指标，但使用中间价而非收盘价计算。"),
+                    html.P([
+                        "MPMI指标的计算方法为：",
+                        html.Ol([
+                            html.Li("EMA短线 = 中间价的12日指数移动平均"),
+                            html.Li("EMA长线 = 中间价的26日指数移动平均"),
+                            html.Li("MPMI线 = EMA短线 - EMA长线"),
+                            html.Li("MPMI信号线 = MPMI线的9日指数移动平均"),
+                            html.Li("MPMI柱状图 = MPMI线 - MPMI信号线")
+                        ])
+                    ]),
+                    html.P([
+                        "MPMI指标观测技巧：",
+                        html.Ul([
+                            html.Li("MPMI线从下连续上穿信号线，形成金叉，是买入信号"),
+                            html.Li("MPMI线从上连续下穿信号线，形成死叉，是卖出信号"),
+                            html.Li("MPMI柱状图趋势由负转正且柱状图高度升高，说明上涨动能增强"),
+                            html.Li("MPMI柱状图趋势由正转负且柱状图进一步走低，说明下跌动能增强"),
+                            html.Li("MPMI指标并非绝对准确，建议结合其他指标如振幅、ATR等进行分析")
+                        ])
+                    ])
+                ])),
+                
+                # MPMI应用场景
+                html.H5("MPMI在交易中的应用", className="text-success mt-4 mb-2"),
+                dbc.Card(dbc.CardBody([
+                    html.P([
+                        "1. 动能转化判断：",
+                        html.Ul([
+                            html.Li("MPMI柱状图由负转正，且MPMI线向上穿过信号线时，可能将出现上涨动能"),
+                            html.Li("MPMI柱状图由正转负，且MPMI线向下穿过信号线时，可能将出现下跌动能")
+                        ])
+                    ]),
+                    html.P([
+                        "2. 网格交易中的应用：",
+                        html.Ul([
+                            html.Li("上轨和下轨定位：当MPMI金叉形成时，可作为设置网格交易上轨的使用参考"),
+                            html.Li("交易方向确认：当中间价趋势和MPMI信号方向一致时，可增强交易信心")
+                        ])
+                    ]),
+                    html.P([
+                        "3. 组合指标应用：",
+                        html.Ul([
+                            html.Li("MPMI与振幅结合：金叉信号出现的同时振幅增大，可能意味着更强的趋势信号"),
+                            html.Li("MPMI与ATR结合：ATR增大时的MPMI金叉信号可能有更高的可靠性"),
+                            html.Li("MPMI与中间价-开盘价差值结合：差值和MPMI方向一致时，信号可靠性增强")
+                        ])
+                    ])
+                ])),
+                
                 # DeepSeek使用说明 - 新增
                 html.H5("DeepSeek使用说明", className="text-success mt-4 mb-2"),
                 dbc.Card(dbc.CardBody([

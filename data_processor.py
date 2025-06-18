@@ -61,11 +61,15 @@ class DataProcessor:
         # 计算增强中间价-开盘价差值指标
         df = self.calculate_enhanced_open_mid_diff(df)
         
+        # 计算MPMI (中间价动量指标)
+        df = self.calculate_mpmi(df)
+        
         # 确保所有列的数据类型正确
         numeric_cols = ['open', 'high', 'low', 'close', 'mid_price', 
                         'amplitude', 'rel_amplitude', 'mid_upper', 'mid_lower',
                         'amplitude_ma', 'amplitude_percentile', 'open_mid_diff',
-                        'open_mid_diff_ma', 'open_mid_diff_percentile']
+                        'open_mid_diff_ma', 'open_mid_diff_percentile', 
+                        'MPMI_Line', 'MPMI_Signal', 'MPMI_Hist']
         for col in numeric_cols:
             if col in df.columns:
                 df[col] = pd.to_numeric(df[col], errors='coerce')
@@ -323,5 +327,43 @@ class DataProcessor:
                 if std > 0:  # 避免除零
                     current_value = df['open_mid_diff'].iloc[i]
                     df.loc[df.index[i], 'open_mid_diff_zscore'] = (current_value - mean) / std
+        
+        return df
+        
+    def calculate_mpmi(self, df):
+        """
+        计算中间价动量指标(MPMI, Mid-Price Momentum Indicator)
+        类似MACD但以中间价为基础计算
+        
+        Parameters:
+        -----------
+        df : pd.DataFrame
+            股票数据，需包含'mid_price'列
+            
+        Returns:
+        --------
+        pd.DataFrame : 添加了MPMI指标的DataFrame
+        """
+        if 'mid_price' not in df.columns or df.empty:
+            return df
+            
+        # 计算EMA短期线 (span=12)
+        df['ema_short'] = df['mid_price'].ewm(span=12, adjust=False).mean()
+        
+        # 计算EMA长期线 (span=26)
+        df['ema_long'] = df['mid_price'].ewm(span=26, adjust=False).mean()
+        
+        # 计算MPMI线 (类似MACD线)
+        df['MPMI_Line'] = df['ema_short'] - df['ema_long']
+        
+        # 计算信号线 (9日MPMI的EMA)
+        df['MPMI_Signal'] = df['MPMI_Line'].ewm(span=9, adjust=False).mean()
+        
+        # 计算柱状图 (MPMI线-信号线)
+        df['MPMI_Hist'] = df['MPMI_Line'] - df['MPMI_Signal']
+        
+        # 标记金叉和死叉
+        df['MPMI_GoldenCross'] = (df['MPMI_Line'] > df['MPMI_Signal']) & (df['MPMI_Line'].shift(1) <= df['MPMI_Signal'].shift(1))
+        df['MPMI_DeathCross'] = (df['MPMI_Line'] < df['MPMI_Signal']) & (df['MPMI_Line'].shift(1) >= df['MPMI_Signal'].shift(1))
         
         return df
