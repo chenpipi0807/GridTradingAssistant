@@ -64,6 +64,9 @@ class DataProcessor:
         # 计算MPMI (中间价动量指标)
         df = self.calculate_mpmi(df)
         
+        # 计算星星指标
+        df = self.calculate_star_indicator(df)
+        
         # 确保所有列的数据类型正确
         numeric_cols = ['open', 'high', 'low', 'close', 'mid_price', 
                         'amplitude', 'rel_amplitude', 'mid_upper', 'mid_lower',
@@ -365,5 +368,82 @@ class DataProcessor:
         # 标记金叉和死叉
         df['MPMI_GoldenCross'] = (df['MPMI_Line'] > df['MPMI_Signal']) & (df['MPMI_Line'].shift(1) <= df['MPMI_Signal'].shift(1))
         df['MPMI_DeathCross'] = (df['MPMI_Line'] < df['MPMI_Signal']) & (df['MPMI_Line'].shift(1) >= df['MPMI_Signal'].shift(1))
+        
+        return df
+
+    def calculate_star_indicator(self, df):
+        """
+        计算星星指标：连续三天振幅缩小且第二天和第三天的高低价都在第一天的高低价区间内
+        星星颜色根据中间价走势确定：
+        - 红色星星：三天中间价持续上涨
+        - 绿色星星：三天中间价持续下跌  
+        - 黄色星星：三天中间价持平或上下波动
+        
+        Parameters:
+        -----------
+        df : pd.DataFrame
+            股票数据，需包含'amplitude', 'high', 'low', 'mid_price'列
+            
+        Returns:
+        --------
+        pd.DataFrame : 添加了星星指标的DataFrame
+        """
+        if df.empty or len(df) < 3:
+            df['star_indicator'] = None
+            return df
+            
+        # 检查必需的列是否存在
+        required_cols = ['amplitude', 'high', 'low', 'mid_price']
+        if not all(col in df.columns for col in required_cols):
+            df['star_indicator'] = None
+            return df
+        
+        # 初始化星星指标列
+        df['star_indicator'] = None
+        
+        # 从第三天开始检查（需要前两天的数据）
+        for i in range(2, len(df)):
+            # 获取连续三天的数据
+            day1_idx = i - 2
+            day2_idx = i - 1  
+            day3_idx = i
+            
+            # 检查条件1：振幅连续三天缩小
+            amp1 = df.iloc[day1_idx]['amplitude']
+            amp2 = df.iloc[day2_idx]['amplitude']
+            amp3 = df.iloc[day3_idx]['amplitude']
+            
+            amplitude_shrinking = amp1 > amp2 > amp3
+            
+            # 检查条件2：第二天和第三天的最高价和最低价都在第一天的最高价和最低价区间内
+            high1 = df.iloc[day1_idx]['high']
+            low1 = df.iloc[day1_idx]['low']
+            
+            high2 = df.iloc[day2_idx]['high']
+            low2 = df.iloc[day2_idx]['low']
+            high3 = df.iloc[day3_idx]['high']
+            low3 = df.iloc[day3_idx]['low']
+            
+            day2_in_range = low1 <= low2 <= high1 and low1 <= high2 <= high1
+            day3_in_range = low1 <= low3 <= high1 and low1 <= high3 <= high1
+            
+            price_in_range = day2_in_range and day3_in_range
+            
+            # 如果满足两个条件，确定星星颜色
+            if amplitude_shrinking and price_in_range:
+                mid1 = df.iloc[day1_idx]['mid_price']
+                mid2 = df.iloc[day2_idx]['mid_price']
+                mid3 = df.iloc[day3_idx]['mid_price']
+                
+                # 判断中间价走势
+                if mid1 < mid2 < mid3:  # 持续上涨
+                    star_color = 'red'
+                elif mid1 > mid2 > mid3:  # 持续下跌
+                    star_color = 'green'
+                else:  # 持平或波动
+                    star_color = 'yellow'
+                
+                # 将星星标记在第三天（当前检查的这一天）
+                df.loc[df.index[day3_idx], 'star_indicator'] = star_color
         
         return df

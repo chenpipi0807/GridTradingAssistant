@@ -317,6 +317,46 @@ class Visualizer:
                         row=amplitude_row, col=1
                     )
             
+            # 添加星星指标（振幅缩小且价格区间收窄的标记）
+            if 'star_indicator' in df.columns:
+                # 分别处理红色、绿色和黄色星星
+                for star_color in ['red', 'green', 'yellow']:
+                    star_data = df[df['star_indicator'] == star_color]
+                    if not star_data.empty:
+                        # 确定星星的颜色和名称
+                        if star_color == 'red':
+                            marker_color = 'red'
+                            star_name = '红色星星（中间价上涨）'
+                        elif star_color == 'green':
+                            marker_color = 'green'
+                            star_name = '绿色星星（中间价下跌）'
+                        else:  # yellow
+                            marker_color = 'gold'
+                            star_name = '黄色星星（中间价持平）'
+                        
+                        # 添加星星标记到振幅图上
+                        fig.add_trace(
+                            go.Scatter(
+                                x=star_data['date'],
+                                y=star_data['amplitude'],
+                                mode='markers',
+                                name=star_name,
+                                marker=dict(
+                                    symbol='star',
+                                    size=12,
+                                    color=marker_color,
+                                    line=dict(width=1, color='black')
+                                ),
+                                hoverinfo='text',
+                                hovertext=[f"日期: {d.strftime('%Y-%m-%d') if isinstance(d, pd.Timestamp) else d}<br>"
+                                          f"振幅: {a:.2f}%<br>"
+                                          f"星星类型: {star_name}<br>"
+                                          f"说明: 连续3天振幅缩小且价格区间收窄" 
+                                         for d, a in zip(star_data['display_date'], star_data['amplitude'])],
+                            ),
+                            row=amplitude_row, col=1
+                        )
+            
             # 设置振幅图表Y轴标题
             fig.update_yaxes(
                 title_text="振幅(%)",
