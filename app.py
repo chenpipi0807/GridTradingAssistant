@@ -25,7 +25,7 @@ strategy = TradingStrategy()
 # 创建Dash应用
 app = dash.Dash(
     __name__,
-    external_stylesheets=[dbc.themes.BOOTSTRAP, "https://use.fontawesome.com/releases/v5.15.4/css/all.css"],
+    external_stylesheets=[],
     meta_tags=[{"name": "viewport", "content": "width=device-width, initial-scale=1"}],
     title="网格交易大师V5",
     suppress_callback_exceptions=True  # 添加这个参数来抑制回调异常
@@ -89,6 +89,7 @@ app.layout = html.Div([
         # 新增消息处理存储组件
         dcc.Store(id="message-processing-store", storage_type="memory"),
         dcc.Store(id="request-state-store", storage_type="memory", data=False),
+        dcc.Store(id="favorites-store", data=utils.load_favorite_stocks()),
         
         # 页脚
         html.Footer([
@@ -314,7 +315,7 @@ def get_indicators_layout():
                         html.Ul([
                             html.Li("切换到DeepSeek标签页"),
                             html.Li("在左侧控制面板中输入您的API密钥并点击保存"),
-                            html.Li("选择合适的模型（推荐使用DeepSeek-R1以获得更好的分析能力）"),
+                            html.Li("选择合适的模型（推荐使用DeepSeek V4 Pro以获得更好的分析能力）"),
                             html.Li("可以上传当前股票数据以便AI分析"),
                             html.Li("使用预设问题或输入自定义问题进行交流")
                         ])
@@ -362,25 +363,25 @@ def get_market_layout():
             dbc.Col([
                 dbc.Card([
                     dbc.CardBody([
-                        # 股票输入
+                        # 股票输入 - 紧凑搜索框
                         dbc.Label("股票代码/名称", className="mb-1 small fw-bold", style={"color": "#4D4B63", "fontSize": "11px"}),
                         dbc.InputGroup([
                             dbc.Input(
                                 id="stock-input",
-                                placeholder="如：301536 / 中科曙光",
-                                value="301536",
+                                placeholder="输入代码后按回车",
+                                value="300502",
                                 style={"height": "32px", "fontSize": "11px"},
                                 className="border-light-subtle",
                             ),
-                            dbc.Button("搜索", id="search-btn", color="light", size="sm", 
+                            dbc.Button("搜索", id="search-btn", color="light", size="sm",
                                      style={"background": "#7D5BA6", "color": "white", "border": "none"}),
                         ], size="sm", className="mb-2"),
                         dbc.ListGroup(id="stock-search-results", className="mb-3 small"),
-                        
+
                         # 常用股票
                         dbc.Label("常用股票", className="mb-1 small fw-bold", style={"color": "#4D4B63", "fontSize": "11px"}),
                         html.Div(id="favorite-stocks-container", className="mb-2"),
-                        
+
                         # 日期范围
                         dbc.Label("日期范围", className="mb-1 small fw-bold", style={"color": "#4D4B63", "fontSize": "10px"}),
                         dcc.Dropdown(
@@ -390,79 +391,94 @@ def get_market_layout():
                             className="mb-2 small",
                             style={"fontSize": "10px"},
                         ),
-                        
+
                         # 数据源
                         html.Div([
-                            html.P("数据源: 东方财富", 
-                                   className="small fw-bold mb-3", 
+                            html.P("数据源: 东方财富",
+                                   className="small fw-bold mb-3",
                                    style={"color": "#4D4B63", "margin-bottom": "15px"}),
-                            # 隐藏的数据源选择器(仅保留东方财富)
                             dbc.Input(
                                 id="data-source-dropdown",
-                                value="eastmoney", 
+                                value="eastmoney",
                                 type="hidden"
                             ),
                         ], className="mb-3"),
-                        
-                        # 查询按钮
-                        dbc.Button(
-                            "获取数据",
-                            id="query-btn",
-                            color="light",
-                            className="w-100 mt-2 mb-2",
-                            size="sm",
-                            style={"background": "#A65B56", "color": "white", "border": "none"},
-                        ),
-                        
+
                         # 预警消息
                         html.Div(id="alert-container", className="mt-3"),
-                        
+
                         # 基本信息
                         html.Div(id="summary-cards", className="mt-3"),
                     ]),
                 ], className="shadow-sm h-100", style={"border": "1px solid #EFEDF5", "background": "#FFFFFF"}),
-            ], width=2, className="pe-0"),  # 左侧列减小宽度并去除右边距
-            
+            ], width=2, className="pe-0"),
+
             # 右侧主内容
             dbc.Col([
                 # 加载指示器
                 dcc.Loading(
                     id="loading",
                     type="circle",
+                    color="#7D5BA6",
                     children=[
                         # 主要图表容器
                         dbc.Card([
                             dbc.CardHeader([
                                 html.Div([
-                                    # 标题将在回调中动态更新，这里设置默认值
                                     html.H6(id="chart-title", className="mb-0 d-inline fw-bold", style={"color": "#4D4B63"}),
                                     html.Span(
-                                        "(最高价+最低价)/2", 
+                                        "(最高价+最低价)/2",
                                         className="ms-2 small", style={"color": "#8E7E64"}
                                     ),
                                 ], className="d-inline"),
-                                # 只保留K线图切换开关
+                                # 操作按钮组：更新数据、收藏、K线切换
                                 html.Div([
+                                    html.Button(
+                                        "⟳ 更新",
+                                        id="refresh-data-btn",
+                                        title="刷新当前股票数据",
+                                        style={
+                                            "fontSize": "11px",
+                                            "background": "none",
+                                            "border": "none",
+                                            "cursor": "pointer",
+                                            "color": "#7D5BA6",
+                                            "padding": "0 4px",
+                                        }
+                                    ),
+                                    html.Button(
+                                        "☆",
+                                        id="chart-favorite-btn",
+                                        title="收藏/取消收藏",
+                                        style={
+                                            "fontSize": "15px",
+                                            "background": "none",
+                                            "border": "none",
+                                            "cursor": "pointer",
+                                            "color": "#4D4B63",
+                                            "padding": "0 6px",
+                                            "lineHeight": "1",
+                                        }
+                                    ),
                                     dbc.Switch(
                                         id="kline-toggle",
-                                        label="显示K线图",
-                                        value=False,  # 默认关闭
+                                        label="K线",
+                                        value=False,
                                         className="mt-0",
                                         style={"font-size": "12px"}
                                     )
-                                ], className="float-end")
+                                ], className="float-end d-flex align-items-center")
                             ], className="py-2 border-bottom d-flex justify-content-between", style={"border-left": "3px solid #7D5BA6", "background": "#FCFCFE"}),
                             dbc.CardBody([
                                 html.Div(id="stock-chart-container"),
-                                # 添加缓存存储组件来记录图表交互状态
                                 dcc.Store(id="chart-zoom-state", data={"range": None, "domain": None})
                             ], className="p-2", style={"background": "#FFFFFF"}),
                         ], className="mb-3 border shadow-sm", style={"border-radius": "3px", "border": "1px solid #EFEDF5"}),
-                        
+
                         # 数据表格
                         dbc.Card([
-                            dbc.CardHeader(html.H6("交易数据", className="mb-0 small fw-bold", style={"color": "#4D4B63"}), 
-                                        className="py-2 border-bottom", 
+                            dbc.CardHeader(html.H6("交易数据", className="mb-0 small fw-bold", style={"color": "#4D4B63"}),
+                                        className="py-2 border-bottom",
                                         style={"border-left": "3px solid #A65B56", "background": "#FCFCFE"}),
                             dbc.CardBody([
                                 html.Div(id="data-table-container", className="small")
@@ -470,7 +486,7 @@ def get_market_layout():
                         ], className="mb-3 border shadow-sm", style={"border-radius": "3px", "border": "1px solid #EFEDF5"}),
                     ],
                 ),
-            ], width=10, className="ps-3"),  # 右侧列增加宽度并去除左边距
+            ], width=10, className="ps-3"),
         ])
     ])
 
@@ -597,8 +613,10 @@ def create_summary_cards(df):
         Output("chart-title", "children"),
     ],
     [
-        Input("query-btn", "n_clicks"),
-        Input('kline-toggle', 'value'),  # 添加K线图切换输入
+        Input("stock-input", "n_submit"),
+        Input("search-btn", "n_clicks"),
+        Input("refresh-data-btn", "n_clicks"),
+        Input('kline-toggle', 'value'),
     ],
     [
         State("stock-input", "value"),
@@ -608,15 +626,15 @@ def create_summary_cards(df):
     ],
     prevent_initial_call=True
 )
-def update_chart(query_clicks, kline_toggle, stock_code, date_range, data_source, stored_data):
-    """整合的回调函数，处理查询和缩放功能"""
+def update_chart(enter_press, search_clicks, refresh_clicks, kline_toggle, stock_code, date_range, data_source, stored_data):
+    """整合的回调函数：搜索/Enter/刷新 获取数据 / K线切换"""
     ctx = dash.callback_context
     if not ctx.triggered:
         return dash.no_update, dash.no_update, dash.no_update, dash.no_update, dash.no_update, dash.no_update
-    
+
     # 获取触发回调的按钮 ID
     triggered_id = ctx.triggered[0]['prop_id'].split('.')[0]
-    
+
     # 如果是K线图切换且有存储数据
     if triggered_id == "kline-toggle" and stored_data:
         # 检查数据结构
@@ -664,18 +682,29 @@ def update_chart(query_clicks, kline_toggle, stock_code, date_range, data_source
             config={'displayModeBar': False}
         ), dash.no_update, chart_title
     
-    # 查询功能 - 如果是查询按钮
-    elif triggered_id == "query-btn":
+    # 数据查询/刷新 - Enter键 / 搜索按钮 / 更新按钮
+    elif triggered_id in ("stock-input", "search-btn", "refresh-data-btn"):
+        # 如果是刷新按钮，使用已存储的股票代码
+        if triggered_id == "refresh-data-btn":
+            if stored_data and isinstance(stored_data, dict):
+                stock_code = stored_data.get('stock_code', stock_code)
+            if not stock_code:
+                return dash.no_update, dash.no_update, dash.no_update, dash.no_update, dbc.Alert("请先搜索一只股票", color="warning", dismissable=True), dash.no_update
+
         # 验证输入
         if not stock_code:
             return dash.no_update, dash.no_update, dash.no_update, dash.no_update, dbc.Alert("请输入股票代码或名称", color="warning", dismissable=True), dash.no_update
-        
+
         # 解析股票输入
         input_type, value = utils.parse_stock_input(stock_code)
-        
+
+        # 如果是名称而非代码，不处理（由搜索回调处理）
+        if input_type == 'name':
+            return dash.no_update, dash.no_update, dash.no_update, dash.no_update, dash.no_update, dash.no_update
+
         # 解析日期范围
         start_date, end_date = utils.parse_date_range(date_range)
-        
+
         try:
             # 获取股票数据
             df, stock_info = data_fetcher.get_stock_data(value, start_date, end_date, data_source)
@@ -760,37 +789,120 @@ def update_chart(query_clicks, kline_toggle, stock_code, date_range, data_source
 # 加载常用股票列表并显示在界面上
 @app.callback(
     Output("favorite-stocks-container", "children"),
-    Input("tabs", "active_tab")
+    Input("favorites-store", "data")
 )
-def load_favorite_stocks_ui(active_tab):
-    if active_tab != "market-tab":
-        return dash.no_update
-    
-    # 从utils加载常用股票列表
-    favorites = utils.load_favorite_stocks()
-    
-    # 创建常用股票按钮
+def load_favorite_stocks_ui(favorites_data):
+    if not favorites_data:
+        return html.Div("暂无收藏股票", className="small text-muted")
+
+    # 创建常用股票按钮（带删除X）- 使用 Button 而非 Span 确保点击事件可靠
     buttons = []
-    for stock in favorites:
+    for stock in favorites_data:
         buttons.append(
-            dbc.Button(
-                stock["name"],  # 显示股票名称
-                id={"type": "favorite-stock-btn", "index": stock["code"]},
-                color="light",
-                size="sm",
-                className="me-1 mb-1",
-                style={
-                    "fontSize": "10px", 
-                    "padding": "2px 5px", 
-                    "backgroundColor": "#f0f0f5", 
-                    "color": "#4D4B63", 
-                    "border": "1px solid #e0e0eb"
-                }
+            html.Span(
+                [
+                    html.Button(
+                        stock["name"],
+                        id={"type": "favorite-stock-btn", "index": stock["code"]},
+                        style={
+                            "fontSize": "10px",
+                            "padding": "1px 5px",
+                            "backgroundColor": "#f0f0f5",
+                            "color": "#4D4B63",
+                            "border": "1px solid #e0e0eb",
+                            "borderRight": "none",
+                            "borderRadius": "4px 0 0 4px",
+                            "cursor": "pointer",
+                            "lineHeight": "18px",
+                        },
+                        title=f"点击加载 {stock['name']}"
+                    ),
+                    html.Button(
+                        "×",
+                        id={"type": "remove-fav-btn", "index": stock["code"]},
+                        style={
+                            "fontSize": "12px",
+                            "padding": "1px 5px",
+                            "backgroundColor": "#f0f0f5",
+                            "color": "#999",
+                            "border": "1px solid #e0e0eb",
+                            "borderLeft": "none",
+                            "borderRadius": "0 4px 4px 0",
+                            "cursor": "pointer",
+                            "lineHeight": "18px",
+                            "fontWeight": "bold",
+                        },
+                        title=f"取消收藏 {stock['name']}"
+                    ),
+                ],
+                className="d-inline-block me-1 mb-1"
             )
         )
-    
-    # 将按钮包装在一个Div中返回
+
     return html.Div(buttons, className="d-flex flex-wrap")
+
+# 图表标题栏收藏按钮 - 点击切换收藏状态（只更新数据，图标由下方回调自动刷新）
+@app.callback(
+    Output("favorites-store", "data", allow_duplicate=True),
+    Input("chart-favorite-btn", "n_clicks"),
+    State("stock-data-store", "data"),
+    State("favorites-store", "data"),
+    prevent_initial_call=True
+)
+def toggle_chart_favorite(n_clicks, stock_data, favorites_data):
+    if not stock_data:
+        return dash.no_update
+
+    stock_code = stock_data.get('stock_code', '')
+    stock_name = stock_data.get('stock_name', '')
+    if not stock_code:
+        return dash.no_update
+
+    # 修复: favorites_data 可能为 None（初始状态）
+    favorites = list(favorites_data) if favorites_data else []
+
+    found = None
+    for i, fav in enumerate(favorites):
+        if fav["code"] == stock_code:
+            found = i
+            break
+        # 兼容纯数字代码匹配
+        pure_code = stock_code[-6:] if len(stock_code) >= 6 else stock_code
+        if fav["code"] == pure_code:
+            found = i
+            break
+
+    if found is not None:
+        utils.remove_favorite_stock(favorites[found]["code"])
+        favorites.pop(found)
+    else:
+        utils.add_favorite_stock(stock_code, stock_name or stock_code)
+        favorites.append({"code": stock_code, "name": stock_name or stock_code})
+
+    return favorites
+
+# 当股票数据或收藏列表变化时，自动更新星标图标显示
+@app.callback(
+    Output("chart-favorite-btn", "children"),
+    Input("stock-data-store", "data"),
+    Input("favorites-store", "data"),
+)
+def update_chart_favorite_star(stock_data, favorites_data):
+    """根据当前股票是否在收藏中，显示 ★ 或 ☆"""
+    if not stock_data or not favorites_data:
+        return "☆"
+
+    stock_code = stock_data.get('stock_code', '')
+    if not stock_code:
+        return "☆"
+
+    for fav in favorites_data:
+        if fav["code"] == stock_code:
+            return "★"
+        pure_code = stock_code[-6:] if len(stock_code) >= 6 else stock_code
+        if fav["code"] == pure_code:
+            return "★"
+    return "☆"
 
 # 处理点击常用股票按钮的回调
 @app.callback(
@@ -803,13 +915,69 @@ def on_favorite_stock_click(n_clicks):
     ctx = dash.callback_context
     if not ctx.triggered:
         return dash.no_update
-    
+
     # 获取按钮ID
     button_id = ctx.triggered[0]['prop_id'].split('.')[0]
     stock_code = json.loads(button_id)["index"]
-    
+
     # 返回股票代码填充到输入框
     return stock_code
+
+# 处理点击删除收藏按钮
+@app.callback(
+    Output("favorites-store", "data", allow_duplicate=True),
+    Input({"type": "remove-fav-btn", "index": dash.ALL}, "n_clicks"),
+    State("favorites-store", "data"),
+    prevent_initial_call=True
+)
+def on_remove_favorite_click(n_clicks, favorites_data):
+    ctx = dash.callback_context
+    if not ctx.triggered or not favorites_data:
+        return dash.no_update
+
+    button_id = ctx.triggered[0]['prop_id'].split('.')[0]
+    stock_code = json.loads(button_id)["index"]
+
+    utils.remove_favorite_stock(stock_code)
+    favorites = [fav for fav in favorites_data if fav["code"] != stock_code]
+    return favorites
+
+# 查询成功后更新收藏列表中的股票名称
+@app.callback(
+    Output("favorites-store", "data", allow_duplicate=True),
+    Input("stock-data-store", "data"),
+    State("favorites-store", "data"),
+    prevent_initial_call=True
+)
+def update_favorite_name_on_query(stock_data, favorites_data):
+    """当查询股票后，如果该股票在收藏中但名称为代码，则更新为真实名称"""
+    if not stock_data or not favorites_data:
+        return dash.no_update
+
+    stock_code = stock_data.get('stock_code', '')
+    stock_name = stock_data.get('stock_name', '')
+
+    if not stock_code or not stock_name:
+        return dash.no_update
+
+    updated = False
+    new_favorites = list(favorites_data)
+    for fav in new_favorites:
+        # 如果收藏中的名称就是代码本身，更新为真实名称
+        if fav["code"] == stock_code and fav["name"] == stock_code and stock_name != stock_code:
+            fav["name"] = stock_name
+            updated = True
+        # 同时也检查不带前缀的匹配
+        if len(stock_code) >= 6:
+            pure_code = stock_code[-6:] if len(stock_code) > 6 else stock_code
+            if fav["code"] == pure_code and fav["name"] == pure_code and stock_name != pure_code:
+                fav["name"] = stock_name
+                updated = True
+
+    if updated:
+        utils.save_favorite_stocks(new_favorites)
+        return new_favorites
+    return dash.no_update
 
 # 添加全局错误处理
 @app.callback(

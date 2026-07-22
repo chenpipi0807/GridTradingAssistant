@@ -12,39 +12,180 @@ import re
 def load_favorite_stocks():
     """
     从文件加载常用股票列表
-    
+
     Returns:
     --------
     list : 包含股票代码和名称的字典列表
     """
     try:
-        with open('favorite_stocks.json', 'r', encoding='utf-8') as f:
+        file_path = os.path.join(os.getcwd(), 'favorite_stocks.json')
+        if not os.path.exists(file_path):
+            default_favorites = [
+                {"code": "603019", "name": "中科曙光"},
+                {"code": "600161", "name": "天坛生物"},
+                {"code": "002261", "name": "拓维信息"},
+                {"code": "000977", "name": "浪潮信息"},
+                {"code": "300502", "name": "新易盛"}
+            ]
+            save_favorite_stocks(default_favorites)
+            return default_favorites
+
+        with open(file_path, 'r', encoding='utf-8') as f:
             data = json.load(f)
             return data.get('favorites', [])
-    except (FileNotFoundError, json.JSONDecodeError):
-        # 默认常用股票
-        default_favorites = [
-            {"code": "603019", "name": "中科曙光"},
-            {"code": "600161", "name": "天坛生物"},
-            {"code": "002261", "name": "拓维信息"},
-            {"code": "000977", "name": "浪潮信息"},
-            {"code": "301536", "name": "星宸科技"}
-        ]
-        save_favorite_stocks(default_favorites)
-        return default_favorites
+    except Exception as e:
+        print(f'加载常用股票时出错: {str(e)}')
+        return []
 
 
 def save_favorite_stocks(favorites):
     """
     保存常用股票列表到文件
-    
+
     Parameters:
     -----------
     favorites : list
         包含股票代码和名称的字典列表
     """
-    with open('favorite_stocks.json', 'w', encoding='utf-8') as f:
-        json.dump({"favorites": favorites}, f, ensure_ascii=False, indent=4)
+    try:
+        file_path = os.path.join(os.getcwd(), 'favorite_stocks.json')
+        with open(file_path, 'w', encoding='utf-8') as f:
+            json.dump({"favorites": favorites}, f, ensure_ascii=False, indent=4)
+        return True
+    except Exception as e:
+        print(f'保存常用股票时出错: {str(e)}')
+        return False
+
+
+def add_favorite_stock(code, name):
+    """
+    添加股票到收藏列表
+
+    Parameters:
+    -----------
+    code : str
+        股票代码
+    name : str
+        股票名称
+    Returns:
+    --------
+    bool : 是否添加成功
+    """
+    favorites = load_favorite_stocks()
+    # 检查是否已存在
+    for stock in favorites:
+        if stock["code"] == code:
+            return True  # 已存在，不算失败
+    favorites.append({"code": code, "name": name})
+    return save_favorite_stocks(favorites)
+
+
+def remove_favorite_stock(code):
+    """
+    从收藏列表中移除股票
+
+    Parameters:
+    -----------
+    code : str
+        股票代码
+    Returns:
+    --------
+    bool : 是否移除成功
+    """
+    favorites = load_favorite_stocks()
+    favorites = [stock for stock in favorites if stock["code"] != code]
+    return save_favorite_stocks(favorites)
+
+
+def is_favorite_stock(code):
+    """
+    检查股票是否已收藏
+
+    Parameters:
+    -----------
+    code : str
+        股票代码
+    Returns:
+    --------
+    bool : 是否已收藏
+    """
+    favorites = load_favorite_stocks()
+    for stock in favorites:
+        if stock["code"] == code:
+            return True
+    return False
+
+
+def get_temp_stock_files():
+    """
+    获取 temp/ 目录下所有可用的股票数据文件
+
+    Returns:
+    --------
+    list : 每个元素包含 code, name, file_path, date_range
+    """
+    result = []
+    temp_dir = os.path.join(os.getcwd(), 'temp')
+
+    if not os.path.exists(temp_dir):
+        return result
+
+    # 收集所有 CSV 文件（排除 current_stock_data.csv，单独处理）
+    current_file = os.path.join(temp_dir, 'current_stock_data.csv')
+    if os.path.exists(current_file):
+        # 读取 info 文件获取名称
+        info_file = os.path.join(temp_dir, 'current_stock_info.json')
+        name = "未知"
+        code = "未知"
+        date_range = ""
+        if os.path.exists(info_file):
+            try:
+                with open(info_file, 'r', encoding='utf-8') as f:
+                    info = json.load(f)
+                    code = info.get('code', '未知')
+                    name = info.get('name', '未知')
+                    date_range = info.get('period', '')
+            except:
+                pass
+        result.append({
+            "code": code,
+            "name": name,
+            "label": f"📊 当前行情: {name}({code}) {date_range}",
+            "file_path": current_file,
+            "date_range": date_range
+        })
+
+    # 扫描其他 CSV 文件
+    for fname in os.listdir(temp_dir):
+        if fname == 'current_stock_data.csv' or not fname.endswith('.csv'):
+            continue
+        fpath = os.path.join(temp_dir, fname)
+        # 从文件名解析: {code}_{start}_{end}.csv
+        parts = fname.replace('.csv', '').split('_')
+        code = parts[0] if len(parts) >= 1 else '未知'
+        date_range = f"{parts[1]} 至 {parts[2]}" if len(parts) >= 3 else ""
+
+        # 尝试从收藏列表中匹配名称
+        name = code
+        favorites = load_favorite_stocks()
+        for fav in favorites:
+            if fav["code"] == code:
+                name = fav["name"]
+                break
+
+        label = f"{name}({code})"
+        if date_range:
+            label += f" [{date_range}]"
+
+        result.append({
+            "code": code,
+            "name": name,
+            "label": label,
+            "file_path": fpath,
+            "date_range": date_range
+        })
+
+    return result
 
 
 def is_valid_stock_code(code):
@@ -260,55 +401,3 @@ def parse_stock_input(input_text):
     
     # 否则视为股票名称
     return 'name', input_text
-
-
-def load_favorite_stocks():
-    """
-    从文件加载常用股票列表
-    
-    Returns:
-    --------
-    list : 常用股票列表，每个股票为包含code和name的字典
-    """
-    try:
-        file_path = os.path.join(os.getcwd(), 'favorite_stocks.json')
-        if not os.path.exists(file_path):
-            # 如果文件不存在，返回默认列表
-            return [
-                {'code': '603019', 'name': '中科曙光'},
-                {'code': '600161', 'name': '天坛生物'},
-                {'code': '002261', 'name': '拓维信息'},
-                {'code': '000977', 'name': '浪潮信息'},
-                {'code': '301536', 'name': '星宸科技'}
-            ]
-        
-        with open(file_path, 'r', encoding='utf-8') as f:
-            data = json.load(f)
-            return data.get('favorites', [])
-    except Exception as e:
-        print(f'加载常用股票时出错: {str(e)}')
-        # 出错时返回空列表
-        return []
-
-
-def save_favorite_stocks(favorites):
-    """
-    保存常用股票列表到文件
-    
-    Parameters:
-    -----------
-    favorites : list
-        常用股票列表，每个股票为包含code和name的字典
-        
-    Returns:
-    --------
-    bool : 保存是否成功
-    """
-    try:
-        file_path = os.path.join(os.getcwd(), 'favorite_stocks.json')
-        with open(file_path, 'w', encoding='utf-8') as f:
-            json.dump({'favorites': favorites}, f, ensure_ascii=False, indent=4)
-        return True
-    except Exception as e:
-        print(f'保存常用股票时出错: {str(e)}')
-        return False

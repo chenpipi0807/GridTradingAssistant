@@ -5,7 +5,7 @@
 本次更新为GridTradingAssistant添加了DeepSeek AI对话功能，主要包括：
 
 1. 与DeepSeek大模型进行对话交流
-2. 支持多种模型选择（DeepSeek-R1、DeepSeek Chat、DeepSeek Coder）
+2. 支持多种模型选择（DeepSeek V4 Pro、DeepSeek V4 Flash）
 3. 支持上传本地股票数据文件进行分析
 4. 支持多轮对话和历史会话管理
 5. 集成枢纽点策略分析建议
@@ -41,7 +41,7 @@
 
 1. 点击顶部的“DeepSeek对话”标签页进入AI对话界面
 2. 首次使用需在左侧面板输入DeepSeek API密钥并点击“保存”
-3. 选择合适的模型（默认为DeepSeek-R1推理增强模型）
+3. 选择合适的模型（默认为DeepSeek V4 Pro高性能模型）
 4. 在对话框中输入问题，点击“发送”按钮或按回车键发送消息
 
 ### 上传股票数据文件

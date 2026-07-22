@@ -63,13 +63,12 @@ class DeepSeekAPI:
     def __post_init__(self):
         """初始化API基础配置"""
         self.api_base = "https://api.deepseek.com"
-        self.chat_endpoint = "/chat/completions"  # 根据最新文档更新端点
+        self.chat_endpoint = "/chat/completions"
         self.models = {
-            "deepseek-reasoner": "deepseek-reasoner",  # 直接使用模型标识符
-            "deepseek-chat": "deepseek-chat",
-            "deepseek-coder": "deepseek-coder"
+            "deepseek-v4-flash": "deepseek-v4-flash",
+            "deepseek-v4-pro": "deepseek-v4-pro"
         }
-        self.default_model = "deepseek-chat"  # 默认使用chat模型
+        self.default_model = "deepseek-v4-pro"  # 默认使用v4-pro模型
         
         # 创建会话历史缓存目录
         self.chat_history_dir = os.path.join(os.path.dirname(os.path.abspath(__file__)), "chattemp")
@@ -86,7 +85,7 @@ class DeepSeekAPI:
         
         参数:
             messages: 对话消息列表，格式为[{"role": "user", "content": "你好"}]
-            model: 模型名称，默认为deepseek-reasoner
+            model: 模型名称，默认为deepseek-v4-pro
             temperature: 温度参数，控制输出随机性，默认0.7
             max_tokens: 最大生成token数，默认2048
             stream: 是否使用流式输出，默认False
@@ -183,7 +182,7 @@ class DeepSeekAPI:
         参数:
             messages: 对话消息列表
             file_paths: 要发送的文件路径列表
-            model: 模型名称，默认为deepseek-reasoner
+            model: 模型名称，默认为deepseek-v4-pro
             temperature: 温度参数，控制输出随机性，默认0.7
             max_tokens: 最大生成token数，默认8192
             
@@ -345,9 +344,8 @@ class DeepSeekAPI:
             模型列表，每个模型包含id和name
         """
         return [
-            {"id": "deepseek-reasoner", "name": "DeepSeek-R1 (推理增强)"},
-            {"id": "deepseek-chat", "name": "DeepSeek Chat (通用对话)"},
-            {"id": "deepseek-coder", "name": "DeepSeek Coder (代码专家)"}
+            {"id": "deepseek-v4-pro", "name": "DeepSeek V4 Pro (高性能)"},
+            {"id": "deepseek-v4-flash", "name": "DeepSeek V4 Flash (极速响应)"}
         ]
     
     def get_all_chat_sessions(self) -> List[Dict[str, Any]]:
