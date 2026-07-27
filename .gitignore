@@ -1,0 +1,30 @@
+# 环境变量 - 包含真实密钥，不上传git
+.env
+
+# Python
+__pycache__/
+*.pyc
+*.pyo
+*.egg-info/
+dist/
+build/
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# 临时数据文件
+temp/*.csv
+temp/*.json
+
+# 聊天缓存
+chattemp/
+
+# 密钥文件
+key.txt
+
+# 系统文件
+Thumbs.db
+.DS_Store

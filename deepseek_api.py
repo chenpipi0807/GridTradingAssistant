@@ -18,19 +18,25 @@ class DeepSeekAPI:
         # 首先尝试从参数获取
         self.api_key = api_key
         
-        # 如果参数未提供，尝试从本地文件获取
-        if not self.api_key:
-            key_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), "key.txt")
-            if os.path.exists(key_path):
-                try:
-                    with open(key_path, 'r', encoding='utf-8') as f:
-                        self.api_key = f.read().strip()
-                except Exception as e:
-                    print(f"从本地文件读取API密钥失败: {e}")
-        
-        # 如果本地文件也没有，尝试从环境变量获取
+        # 如果参数未提供，尝试从环境变量获取
         if not self.api_key:
             self.api_key = os.environ.get("DEEPSEEK_API_KEY")
+
+        # 如果环境变量也没有，尝试从 .env 文件获取
+        if not self.api_key:
+            env_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), ".env")
+            if os.path.exists(env_path):
+                try:
+                    with open(env_path, 'r', encoding='utf-8') as f:
+                        for line in f:
+                            line = line.strip()
+                            if line and not line.startswith('#') and '=' in line:
+                                key, value = line.split('=', 1)
+                                if key.strip() == 'DEEPSEEK_API_KEY':
+                                    self.api_key = value.strip().strip('"').strip("'")
+                                    break
+                except Exception as e:
+                    print(f"从 .env 文件读取API密钥失败: {e}")
             
         # 如果都没有，设置为None但不抛出异常，让前端处理
         if not self.api_key:
@@ -51,9 +57,28 @@ class DeepSeekAPI:
             保存是否成功
         """
         try:
-            key_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), "key.txt")
-            with open(key_path, 'w', encoding='utf-8') as f:
-                f.write(api_key)
+            env_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), ".env")
+            # 读取现有内容（保留其他配置），替换或追加 DEEPSEEK_API_KEY
+            lines = []
+            key_found = False
+            if os.path.exists(env_path):
+                try:
+                    with open(env_path, 'r', encoding='utf-8') as f:
+                        for line in f:
+                            stripped = line.strip()
+                            if stripped and not stripped.startswith('#') and '=' in stripped:
+                                k, _ = stripped.split('=', 1)
+                                if k.strip() == 'DEEPSEEK_API_KEY':
+                                    lines.append(f'DEEPSEEK_API_KEY={api_key}\n')
+                                    key_found = True
+                                    continue
+                            lines.append(line)
+                except Exception:
+                    pass
+            if not key_found:
+                lines.append(f'DEEPSEEK_API_KEY={api_key}\n')
+            with open(env_path, 'w', encoding='utf-8') as f:
+                f.writelines(lines)
             self.api_key = api_key
             return True
         except Exception as e:

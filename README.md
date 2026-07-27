@@ -143,7 +143,7 @@ python app.py
 - `deepseek_api.py`: DeepSeek API调用模块，处理与AI模型的交互
 - `deepseek_ui.py`: DeepSeek对话界面实现，提供对话组件和回调函数
 - `chattemp/`: 对话历史缓存目录
-- `key.txt`: API密钥存储文件（首次使用时会自动创建）
+- `.env`: API密钥配置文件（不上传git，首次使用时会自动创建，参考 `.env.example`）
 
 ### 其他资源
 
