@@ -124,11 +124,14 @@ def get_stock_data_info():
 
 def _make_message_div(role, content, msg_id=None):
     """创建一条聊天消息的 Div"""
+    kwargs = {"className": "d-flex justify-content-end mb-3"} if role == "user" else {"className": "d-flex justify-content-start mb-3"}
+    if msg_id is not None:
+        kwargs["id"] = msg_id
+
     if role == "user":
         return html.Div(
             html.Div(content, className="p-3 mb-2 bg-light rounded"),
-            className="d-flex justify-content-end mb-3",
-            id=msg_id
+            **kwargs
         )
     else:
         return html.Div(
@@ -136,8 +139,7 @@ def _make_message_div(role, content, msg_id=None):
                 dcc.Markdown(content, className="chat-markdown", dangerously_allow_html=True),
                 className="p-3 mb-2 bg-primary bg-opacity-10 rounded"
             ),
-            className="d-flex justify-content-start mb-3",
-            id=msg_id
+            **kwargs
         )
 
 
