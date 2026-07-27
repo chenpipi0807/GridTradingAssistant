@@ -9,18 +9,27 @@ from datetime import datetime
 import tushare as ts
 
 class DataFetcher:
-    def __init__(self, data_source="eastmoney"):
+    def __init__(self, data_source="tencent"):
         """
         初始化数据获取器
-        
+
         Parameters:
         -----------
         data_source : str
-            数据源名称，支持 'eastmoney' 或 'tushare'
+            数据源名称，支持 'tencent'（腾讯财经，默认）、'eastmoney'（东方财富）或 'tushare'
         """
         self.data_source = data_source
         self.tushare_token = None  # 需要用户提供Tushare Token
-        
+
+        # 创建带浏览器伪装头的 Session
+        self.session = requests.Session()
+        self.session.trust_env = False  # 绕过系统代理，避免代理干扰HTTPS连接
+        self.session.headers.update({
+            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36',
+            'Accept': 'application/json, text/plain, */*',
+            'Accept-Language': 'zh-CN,zh;q=0.9,en;q=0.8',
+        })
+
         if data_source == "tushare" and self.tushare_token:
             ts.set_token(self.tushare_token)
             self.pro = ts.pro_api()
@@ -70,19 +79,104 @@ class DataFetcher:
         # 使用传入的data_source（如果有），否则使用实例变量
         source = data_source if data_source else self.data_source
             
-        if source == "eastmoney":
-            df, stock_info = self._get_from_eastmoney(code, start_date, end_date)
-            return df, stock_info
+        if source == "tencent":
+            return self._get_from_tencent(code, start_date, end_date)
+        elif source == "eastmoney":
+            return self._get_from_eastmoney(code, start_date, end_date)
         elif source == "tushare":
             df = self._get_from_tushare(code, start_date, end_date)
-            # 对于tushare，暂时构造一个简单的stock_info
             stock_info = {"code": code, "name": code, "market": ""}
             return df, stock_info
         else:
             raise ValueError(f"不支持的数据源: {source}")
     
+    def _get_from_tencent(self, code, start_date, end_date):
+        """从腾讯财经获取K线数据（前复权日线）
+
+        腾讯API的日期参数过滤不可靠，所以请求足够多的数据后在本地按日期过滤。
+        """
+        normalized_code = self.normalize_stock_code(code)
+
+        market = "上海" if normalized_code.startswith('sh') else "深圳"
+
+        # 腾讯财经前复权K线 API（请求最多640条日线数据，覆盖约2.5年）
+        url = "http://web.ifzq.gtimg.cn/appstock/app/fqkline/get"
+        params = {
+            'param': f'{normalized_code},day,,,640,qfq',
+        }
+
+        try:
+            response = self.session.get(url, params=params, timeout=10)
+            data = response.json()
+
+            if data.get('code') != 0 or 'data' not in data:
+                return pd.DataFrame(), {}
+
+            stock_data_entry = data['data'].get(normalized_code)
+            if not stock_data_entry:
+                return pd.DataFrame(), {}
+
+            # 腾讯返回的 K 线 key 可能是 'qfqday' 或 'day'，兼容两者
+            klines = stock_data_entry.get('qfqday') or stock_data_entry.get('day') or []
+
+            # 提取股票名称（从 qt 字段）
+            stock_name = ""
+            qt = stock_data_entry.get('qt', {})
+            if isinstance(qt, dict):
+                qt_fields = qt.get(normalized_code, [])
+                if isinstance(qt_fields, list) and len(qt_fields) > 1:
+                    stock_name = qt_fields[1]
+
+            stock_data = []
+            for row in klines:
+                if len(row) >= 6:
+                    date_str = row[0]
+
+                    # 按日期范围过滤
+                    if date_str < start_date or date_str > end_date:
+                        continue
+
+                    open_price = float(row[1])
+                    close_price = float(row[2])
+                    high_price = float(row[3])
+                    low_price = float(row[4])
+                    volume = float(row[5])  # 成交量（手）
+
+                    # 成交额估算: 成交量(手) * 收盘价 * 100
+                    amount = volume * close_price * 100
+
+                    # 振幅
+                    amplitude = (high_price - low_price) / open_price * 100 if open_price > 0 else 0
+
+                    stock_data.append({
+                        'date': date_str,
+                        'open': open_price,
+                        'close': close_price,
+                        'high': high_price,
+                        'low': low_price,
+                        'volume': volume,
+                        'amount': amount,
+                        'amplitude': amplitude,
+                    })
+
+            df = pd.DataFrame(stock_data)
+            if not df.empty:
+                df['code'] = code
+
+            stock_info = {
+                "code": normalized_code,
+                "name": stock_name,
+                "market": market,
+            }
+
+            return df, stock_info
+
+        except Exception as e:
+            print(f"从腾讯财经获取数据时出错: {e}")
+            return pd.DataFrame(), {}
+
     def _get_from_eastmoney(self, code, start_date, end_date):
-        """从东方财富获取数据"""
+        """从东方财富获取数据（可能因TLS指纹检测而失败）"""
         normalized_code = self.normalize_stock_code(code)
         
         # 去掉开头的sh或sz以适应东方财富API
@@ -116,12 +210,12 @@ class DataFetcher:
         }
         
         try:
-            response = requests.get(url, params=params)
+            response = self.session.get(url, params=params, timeout=10)
             data = response.json()
-            
+
             if 'data' not in data or data['data'] is None or 'klines' not in data['data']:
                 return pd.DataFrame(), {}
-                
+
             stock_data = []
             for kline in data['data']['klines']:
                 parts = kline.split(',')
@@ -218,9 +312,16 @@ class DataFetcher:
             }
             
             try:
-                response = requests.get(url, params=params)
-                data = response.json()
-                
+                response = self.session.get(url, params=params, timeout=10)
+                raw = response.text
+
+                # 东方财富搜索API返回的是JSONP格式（jQuery...({...})），需要提取JSON部分
+                json_start = raw.find('(')
+                json_end = raw.rfind(')')
+                if json_start != -1 and json_end != -1:
+                    raw = raw[json_start + 1:json_end]
+                data = json.loads(raw)
+
                 if 'QuotationCodeTable' not in data or 'Data' not in data['QuotationCodeTable']:
                     return pd.DataFrame()
                 
@@ -265,12 +366,12 @@ class DataFetcher:
                 'ut': 'b2884a393a59ad64002292a3e90d46a5',
             }
             
-            response = requests.get(url, params=params)
+            response = self.session.get(url, params=params, timeout=10)
             data = response.json()
-            
+
             if 'data' not in data or data['data'] is None or 'klines' not in data['data']:
                 return pd.DataFrame()
-                
+
             flow_data = []
             for kline in data['data']['klines']:
                 parts = kline.split(',')

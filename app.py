@@ -17,7 +17,7 @@ import utils
 import deepseek_ui
 
 # 初始化组件
-data_fetcher = DataFetcher(data_source="eastmoney")
+data_fetcher = DataFetcher(data_source="tencent")
 data_processor = DataProcessor()
 visualizer = Visualizer()
 strategy = TradingStrategy()
@@ -394,12 +394,12 @@ def get_market_layout():
 
                         # 数据源
                         html.Div([
-                            html.P("数据源: 东方财富",
+                            html.P("数据源: 腾讯财经",
                                    className="small fw-bold mb-3",
                                    style={"color": "#4D4B63", "margin-bottom": "15px"}),
                             dbc.Input(
                                 id="data-source-dropdown",
-                                value="eastmoney",
+                                value="tencent",
                                 type="hidden"
                             ),
                         ], className="mb-3"),
